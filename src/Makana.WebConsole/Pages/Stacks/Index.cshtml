@@ -1,0 +1,66 @@
+@page "{org?}/{project?}/{stack?}"
+@model Makana.WebConsole.Pages.Stacks.IndexModel
+@{
+    ViewData["Title"] = $"Stack {Model.Stack}";
+}
+
+<header>
+    <h1>Stack: @Model.Stack</h1>
+    <p>
+        <a asp-page="/Projects/Index" asp-route-org="@Model.Org" asp-route-project="@Model.Project">Project @Model.Project</a>
+    </p>
+</header>
+
+@if (Model.Details is null)
+{
+    <article>
+        <header>Unavailable</header>
+        <p>Unable to load stack details.</p>
+    </article>
+}
+else
+{
+    <section>
+        <h2>Metadata</h2>
+        <table>
+            <tbody>
+                <tr>
+                    <th scope="row">Version</th>
+                    <td>@Model.Details.Version</td>
+                </tr>
+                <tr>
+                    <th scope="row">Active Update</th>
+                    <td>@(string.IsNullOrWhiteSpace(Model.Details.ActiveUpdate) ? "None" : Model.Details.ActiveUpdate)</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Tags</h2>
+        @if (Model.Details.Tags is null || Model.Details.Tags.Count == 0)
+        {
+            <p>No tags set on this stack.</p>
+        }
+        else
+        {
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Key</th>
+                        <th scope="col">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var entry in Model.Details.Tags.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+                {
+                    <tr>
+                        <th scope="row"><code>@entry.Key</code></th>
+                        <td><code>@entry.Value</code></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </section>
+}

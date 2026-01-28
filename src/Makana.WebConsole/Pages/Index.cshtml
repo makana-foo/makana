@@ -1,0 +1,88 @@
+@page
+@model Makana.WebConsole.Pages.IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<header>
+    <h1>Pulumi Console</h1>
+    <p>Server-rendered management view for organizations, projects, and stacks.</p>
+</header>
+
+<section>
+    <h2>User</h2>
+    @if (Model.CurrentUser is null)
+    {
+        <p><small>Unable to load user profile from API.</small></p>
+    }
+    else
+    {
+        <p><strong>@Model.CurrentUser.Name</strong> (@Model.CurrentUser.GitHubLogin)</p>
+    }
+</section>
+
+<section>
+    <h2>Organizations</h2>
+    @if (Model.Organizations.Count == 0)
+    {
+        <p>No organizations found.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Organization</th>
+                    <th scope="col">Projects</th>
+                    <th scope="col">Stacks</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var org in Model.Organizations)
+            {
+                <tr>
+                    <th scope="row"><a asp-page="/Organizations/Index" asp-route-org="@org.OrgName">@org.OrgName</a></th>
+                    <td>@org.ProjectCount</td>
+                    <td>@org.StackCount</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</section>
+
+<section>
+    <h2>Recent stacks</h2>
+    @if (Model.Stacks.Count == 0)
+    {
+        <p>No stacks found.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Organization</th>
+                    <th scope="col">Project</th>
+                    <th scope="col">Stack</th>
+                    <th scope="col">Resources</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var stack in Model.Stacks)
+            {
+                <tr>
+                    <td>@stack.OrgName</td>
+                    <td>
+                        <a asp-page="/Projects/Index" asp-route-org="@stack.OrgName" asp-route-project="@stack.ProjectName">@stack.ProjectName</a>
+                    </td>
+                    <th scope="row">
+                        <a asp-page="/Stacks/Index" asp-route-org="@stack.OrgName" asp-route-project="@stack.ProjectName" asp-route-stack="@stack.StackName">@stack.StackName</a>
+                    </th>
+                    <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</section>

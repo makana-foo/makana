@@ -1,0 +1,27 @@
+:root {
+  --pico-font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --pico-primary: #0b5cad;
+  --pico-primary-hover: #094a8b;
+  --pico-primary-focus: rgba(11, 92, 173, 0.25);
+  --pico-muted-color: #4d5b73;
+}
+
+body > header {
+  margin-top: 1rem;
+}
+
+main {
+  padding-bottom: 2rem;
+}
+
+header h1 {
+  margin-bottom: 0.5rem;
+}
+
+table {
+  margin-top: 1rem;
+}
+
+code {
+  white-space: nowrap;
+}

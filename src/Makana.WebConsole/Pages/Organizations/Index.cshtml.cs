@@ -1,0 +1,41 @@
+using Makana.WebConsole.Models;
+using Makana.WebConsole.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+
+namespace Makana.WebConsole.Pages.Organizations;
+
+public sealed class IndexModel(PulumiApiClient apiClient, ILogger<IndexModel> logger) : PageModel
+{
+    [BindProperty(SupportsGet = true)]
+    public string Org { get; set; } = string.Empty;
+
+    public IReadOnlyList<ProjectSummary> Projects { get; private set; } = [];
+
+    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(Org))
+        {
+            return RedirectToPage("/Index");
+        }
+
+        try
+        {
+            var stacks = await apiClient.GetOrganizationStacksAsync(Org, cancellationToken);
+            Projects = stacks
+                .GroupBy(s => s.ProjectName)
+                .OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => new ProjectSummary(g.Key, g.Count()))
+                .ToArray();
+            return Page();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed loading organization {Org}", Org);
+            Projects = [];
+            return Page();
+        }
+    }
+}
+
+public sealed record ProjectSummary(string ProjectName, int StackCount);

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - Makana Console</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/%40picocss/pico/css/pico.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/Makana.WebConsole.styles.css" asp-append-version="true" />
+</head>
+<body>
+<header class="container">
+    <nav>
+        <ul>
+            <li><strong>Makana Console</strong></li>
+        </ul>
+        <ul>
+            <li><a asp-page="/Index">Dashboard</a></li>
+            <li><a href="/swagger">API</a></li>
+        </ul>
+    </nav>
+</header>
+
+<main class="container">
+    @RenderBody()
+</main>
+
+<footer class="container">
+    <hr />
+    <small>Makana Web Console MVP</small>
+</footer>
+
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

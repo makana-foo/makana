@@ -1,0 +1,40 @@
+@page "{org?}"
+@model Makana.WebConsole.Pages.Organizations.IndexModel
+@{
+    ViewData["Title"] = $"Organization {Model.Org}";
+}
+
+<header>
+    <h1>Organization: @Model.Org</h1>
+    <p><a asp-page="/Index">Back to dashboard</a></p>
+</header>
+
+<section>
+    <h2>Projects</h2>
+    @if (Model.Projects.Count == 0)
+    {
+        <p>No projects found for this organization.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Project</th>
+                    <th scope="col">Stacks</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var project in Model.Projects)
+            {
+                <tr>
+                    <th scope="row">
+                        <a asp-page="/Projects/Index" asp-route-org="@Model.Org" asp-route-project="@project.ProjectName">@project.ProjectName</a>
+                    </th>
+                    <td>@project.StackCount</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+</section>
