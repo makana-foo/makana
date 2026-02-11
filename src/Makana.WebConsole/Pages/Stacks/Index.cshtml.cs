@@ -5,40 +5,58 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Makana.WebConsole.Pages.Stacks;
 
-public sealed class IndexModel(PulumiApiClient apiClient, ILogger<IndexModel> logger) : PageModel
+public sealed class IndexModel(ConsoleContextService consoleContextService) : PageModel
 {
-    [BindProperty(SupportsGet = true)]
-    public string Org { get; set; } = string.Empty;
+    [BindProperty(SupportsGet = true, Name = "owner")]
+    public string? Owner { get; set; }
 
-    [BindProperty(SupportsGet = true)]
-    public string Project { get; set; } = string.Empty;
+    public ConsoleNavigationContext Context { get; private set; } = ConsoleNavigationContext.Empty;
 
-    [BindProperty(SupportsGet = true)]
-    public string Stack { get; set; } = string.Empty;
+    public IReadOnlyList<ProjectGroupSummary> Projects { get; private set; } = [];
 
-    public StackDetails? Details { get; private set; }
-
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public async Task OnGetAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(Org) || string.IsNullOrWhiteSpace(Project) || string.IsNullOrWhiteSpace(Stack))
-        {
-            return RedirectToPage("/Index");
-        }
+        Context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
+        Owner = Context.SelectedOwner;
 
-        try
-        {
-            Details = await apiClient.GetStackAsync(Org, Project, Stack, cancellationToken);
-            if (Details is null)
+        Projects = Context.SelectedOwnerStacks
+            .GroupBy(stack => stack.ProjectName)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group =>
             {
-                return NotFound();
-            }
+                var updatedTimes = group
+                    .Select(stack => ToDateTimeOffset(stack.LastUpdate))
+                    .Where(update => update.HasValue)
+                    .Select(update => update!.Value)
+                    .ToArray();
 
-            return Page();
-        }
-        catch (Exception ex)
+                return new ProjectGroupSummary(
+                    group.Key,
+                    FirstTag(group, "pulumi:description"),
+                    FirstTag(group, "pulumi:runtime"),
+                    updatedTimes.Length == 0 ? null : updatedTimes.Max(),
+                    group
+                        .OrderByDescending(stack => stack.LastUpdate ?? 0)
+                        .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
+                        .ToArray());
+            })
+            .ToArray();
+    }
+
+    private static string? FirstTag(IGrouping<string, StackSummary> group, string key)
+        => group
+            .Select(stack => stack.Tags is not null && stack.Tags.TryGetValue(key, out var value) ? value : null)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+    private static DateTimeOffset? ToDateTimeOffset(long? unixTimestamp)
+    {
+        if (!unixTimestamp.HasValue || unixTimestamp.Value <= 0)
         {
-            logger.LogError(ex, "Failed loading stack {Stack} in {Org}/{Project}", Stack, Org, Project);
-            return Page();
+            return null;
         }
+
+        return unixTimestamp.Value > 1000000000000
+            ? DateTimeOffset.FromUnixTimeMilliseconds(unixTimestamp.Value)
+            : DateTimeOffset.FromUnixTimeSeconds(unixTimestamp.Value);
     }
 }

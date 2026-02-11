@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.1.0">
+<Project Sdk="Aspire.AppHost.Sdk/13.1.1">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Makana.Api\Makana.Api.csproj" />
+    <ProjectReference Include="..\Makana.Api\Makana.Api.csproj" />
     <ProjectReference Include="..\Makana.WebConsole\Makana.WebConsole.csproj" />
   </ItemGroup>
 

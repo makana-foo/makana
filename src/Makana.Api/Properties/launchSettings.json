@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "dotnet-api": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:55507;http://localhost:55508"
+    }
+  }
+}

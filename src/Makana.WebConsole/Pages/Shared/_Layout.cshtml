@@ -1,34 +1,70 @@
+@using Makana.WebConsole.Components
+@using Makana.WebConsole.Models
+@inject Makana.WebConsole.Services.ConsoleContextService ConsoleContextService
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - Makana Console</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/%40picocss/pico/css/pico.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@picocss/pico@@2/css/pico.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/Makana.WebConsole.styles.css" asp-append-version="true" />
 </head>
-<body>
-<header class="container">
-    <nav>
-        <ul>
-            <li><strong>Makana Console</strong></li>
-        </ul>
-        <ul>
-            <li><a asp-page="/Index">Dashboard</a></li>
-            <li><a href="/swagger">API</a></li>
-        </ul>
-    </nav>
-</header>
+<body class="@ViewData["BodyClass"]">
+@{
+    var hideChrome = ViewData["HideChrome"] as bool? == true;
+    var activeSection = ViewData["NavSection"] as string ?? string.Empty;
+    var navContext = ConsoleNavigationContext.Empty;
 
-<main class="container">
-    @RenderBody()
-</main>
+    if (!hideChrome)
+    {
+        navContext = await ConsoleContextService.GetContextAsync(Context, Context.RequestAborted);
+    }
+}
 
-<footer class="container">
-    <hr />
-    <small>Makana Web Console MVP</small>
-</footer>
+@if (hideChrome)
+{
+    <main class="container">
+        @RenderBody()
+    </main>
+}
+else
+{
+    <div class="console-shell">
+        <component type="typeof(ConsoleSidebar)" render-mode="Static" param-Context="navContext" param-ActiveSection="activeSection" />
+
+        <div class="console-main">
+            <header class="console-topbar">
+                <div>
+                    <strong>@(ViewData["Title"] ?? "Makana Console")</strong>
+                    @if (!string.IsNullOrWhiteSpace(navContext.SelectedOwner))
+                    {
+                        <small>Owner: @navContext.SelectedOwner</small>
+                    }
+                </div>
+                <div class="topbar-actions">
+                    @if (User.Identity?.IsAuthenticated == true)
+                    {
+                        <small>@(User.Identity.Name ?? "signed-in")</small>
+                        <form method="post" asp-page="/Login" asp-page-handler="SignOut">
+                            <button type="submit" class="secondary">Logout</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <a role="button" class="secondary" asp-page="/Login">Login</a>
+                    }
+                </div>
+            </header>
+
+            <main class="console-content">
+                @RenderBody()
+            </main>
+        </div>
+    </div>
+}
 
 @await RenderSectionAsync("Scripts", required: false)
 </body>

@@ -1,0 +1,70 @@
+@using Makana.WebConsole.Models
+@inject LinkGenerator LinkGenerator
+@inject IHttpContextAccessor HttpContextAccessor
+
+<aside class="console-sidebar" aria-label="Primary navigation">
+    <header class="sidebar-brand">
+        <strong>Makana</strong>
+        <small>Pulumi Console MVP</small>
+    </header>
+
+    <form method="get" action="@PageHref("/Stacks/Index")" class="owner-switcher">
+        <label for="owner-select">Organization</label>
+        <select id="owner-select" name="owner">
+            @foreach (var owner in Context.OwnerOptions)
+            {
+                <option value="@owner.Value" selected="@IsSelectedOwner(owner.Value)">@owner.Label</option>
+            }
+        </select>
+        <button type="submit" class="secondary">Switch</button>
+    </form>
+
+    <nav class="sidebar-section" aria-label="Workspace">
+        <h2>Workspace</h2>
+        <ul>
+            <li><a class="@LinkClass("Dashboard")" href="@PageHref("/Index", new { owner = Context.SelectedOwner })">Dashboard</a></li>
+            <li><a class="@LinkClass("Stacks")" href="@PageHref("/Stacks/Index", new { owner = Context.SelectedOwner })">Stacks</a></li>
+            <li><a class="@LinkClass("Resources")" href="@PageHref("/Resources/Index", new { owner = Context.SelectedOwner })">Resources</a></li>
+            <li><a class="@LinkClass("Environments")" href="@PageHref("/Environments/Index", new { owner = Context.SelectedOwner })">Environments</a></li>
+            <li><a class="@LinkClass("Deployments")" href="@PageHref("/Deployments/Index", new { owner = Context.SelectedOwner })">Deployments</a></li>
+            <li><a class="@LinkClass("AiTasks")" href="@PageHref("/AiTasks/Index", new { owner = Context.SelectedOwner })">AI Tasks</a></li>
+        </ul>
+    </nav>
+
+    <nav class="sidebar-section" aria-label="Platform">
+        <h2>Platform</h2>
+        <ul>
+            <li><a class="@LinkClass("Platform")" href="@PageHref("/Platform/Index", new { owner = Context.SelectedOwner })">Platform</a></li>
+            <li><a class="@LinkClass("Settings")" href="@PageHref("/Settings/Index", new { owner = Context.SelectedOwner })">Settings</a></li>
+        </ul>
+    </nav>
+</aside>
+
+@code {
+    [Parameter, EditorRequired]
+    public ConsoleNavigationContext Context { get; set; } = ConsoleNavigationContext.Empty;
+
+    [Parameter]
+    public string ActiveSection { get; set; } = string.Empty;
+
+    private bool IsSelectedOwner(string ownerValue)
+        => string.Equals(ownerValue, Context.SelectedOwner, StringComparison.Ordinal);
+
+    private string LinkClass(string section)
+        => string.Equals(section, ActiveSection, StringComparison.Ordinal) ? "active" : string.Empty;
+
+    private string PageHref(string page, object? values = null)
+    {
+        var httpContext = HttpContextAccessor.HttpContext;
+        if (httpContext is null)
+        {
+            return "#";
+        }
+
+        var path = LinkGenerator.GetPathByPage(
+            httpContext: httpContext,
+            page: page,
+            values: values);
+        return string.IsNullOrWhiteSpace(path) ? "#" : path;
+    }
+}

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- AOT Settings -->
+    <PublishAot>true</PublishAot>
+    <WarningsAsErrors>RDG002;IL2026;IL3050;IL3051;IL3052;IL3053;IL3054;IL3055;IL3056;IL3057;IL3058</WarningsAsErrors>
+    <!-- AOT Settings -->
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Makana.ServiceDefaults\Makana.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,65 @@
+@page "/stacks/{org}/{project}/{stack}"
+@model Makana.WebConsole.Pages.Stacks.DetailsModel
+@{
+    ViewData["Title"] = $"Stack {Model.Stack}";
+    ViewData["NavSection"] = "Stacks";
+}
+
+<section>
+    <header>
+        <h1>Stack: @Model.Stack</h1>
+        <p><a asp-page="/Stacks/Index" asp-route-owner="@Model.Owner">Back to stacks</a></p>
+    </header>
+
+    @if (Model.Details is null)
+    {
+        <article>
+            <header>Unavailable</header>
+            <p>Unable to load stack details.</p>
+        </article>
+    }
+    else
+    {
+        <article>
+            <header>Metadata</header>
+            <dl class="project-facts">
+                <div>
+                    <dt>Version</dt>
+                    <dd>@Model.Details.Version</dd>
+                </div>
+                <div>
+                    <dt>Active update</dt>
+                    <dd>@(string.IsNullOrWhiteSpace(Model.Details.ActiveUpdate) ? "None" : Model.Details.ActiveUpdate)</dd>
+                </div>
+            </dl>
+        </article>
+
+        <article>
+            <header>Tags</header>
+            @if (Model.Details.Tags is null || Model.Details.Tags.Count == 0)
+            {
+                <p>No tags set on this stack.</p>
+            }
+            else
+            {
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Key</th>
+                            <th scope="col">Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var entry in Model.Details.Tags.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+                    {
+                        <tr>
+                            <th scope="row"><code>@entry.Key</code></th>
+                            <td><code>@entry.Value</code></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </article>
+    }
+</section>

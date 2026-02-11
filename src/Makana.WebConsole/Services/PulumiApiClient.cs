@@ -43,6 +43,5 @@ public sealed class PulumiApiClient(HttpClient httpClient)
         client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
         client.DefaultRequestHeaders.Accept.Clear();
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.pulumi+8"));
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "token webconsole-local-token");
     }
 }

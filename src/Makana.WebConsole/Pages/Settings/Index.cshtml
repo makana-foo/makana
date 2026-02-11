@@ -1,0 +1,42 @@
+@page
+@model Makana.WebConsole.Pages.Settings.IndexModel
+@{
+    ViewData["Title"] = "Settings";
+    ViewData["NavSection"] = "Settings";
+}
+
+<section>
+    <header>
+        <h1>Settings</h1>
+        <p>Current account and owner context.</p>
+    </header>
+
+    <article>
+        <header>Identity</header>
+        @if (Model.Context.User is null)
+        {
+            <p>Unable to load account details from the API.</p>
+        }
+        else
+        {
+            <dl class="project-facts">
+                <div>
+                    <dt>User</dt>
+                    <dd>@Model.Context.User.Name</dd>
+                </div>
+                <div>
+                    <dt>Login</dt>
+                    <dd>@Model.Context.User.GitHubLogin</dd>
+                </div>
+                <div>
+                    <dt>Email</dt>
+                    <dd>@(Model.Context.User.Email ?? "not provided")</dd>
+                </div>
+                <div>
+                    <dt>Selected owner</dt>
+                    <dd>@(Model.Owner ?? "none")</dd>
+                </div>
+            </dl>
+        }
+    </article>
+</section>

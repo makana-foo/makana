@@ -1,0 +1,42 @@
+@page
+@model Makana.WebConsole.Pages.LoginModel
+@{
+    ViewData["Title"] = "Sign In";
+    ViewData["HideChrome"] = true;
+    ViewData["BodyClass"] = "auth-page";
+    var returnUrl = Request.Query["returnUrl"].ToString();
+}
+
+<section class="login-card" aria-labelledby="signin-heading">
+    <header>
+        <h1 id="signin-heading">Sign In</h1>
+        <p>New to Makana? <a href="#" aria-disabled="true">Create an account</a></p>
+    </header>
+
+    <form method="post" asp-page-handler="SignIn">
+        <input type="hidden" name="returnUrl" value="@returnUrl" />
+        <label for="emailOrUsername">Email or Username</label>
+        <input id="emailOrUsername" name="emailOrUsername" type="text" autocomplete="username" disabled />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" disabled />
+
+        <p class="login-submit">
+            <button type="submit">Sign in with Casdoor</button>
+        </p>
+
+        <p class="login-links"><a href="#" aria-disabled="true">Forgot Password?</a></p>
+    </form>
+
+    <p class="provider-separator"><strong>OR</strong></p>
+
+    <form method="post" asp-page-handler="SignIn">
+        <input type="hidden" name="returnUrl" value="@returnUrl" />
+        <nav class="provider-grid" aria-label="Single sign-on providers">
+            <button type="submit" class="provider-github">GitHub</button>
+            <button type="submit" class="provider-gitlab">GitLab</button>
+            <button type="submit" class="provider-atlassian">Atlassian</button>
+            <button type="submit" class="provider-sso">SSO</button>
+        </nav>
+    </form>
+</section>

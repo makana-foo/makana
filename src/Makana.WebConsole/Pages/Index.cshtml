@@ -2,83 +2,63 @@
 @model Makana.WebConsole.Pages.IndexModel
 @{
     ViewData["Title"] = "Dashboard";
+    ViewData["NavSection"] = "Dashboard";
 }
 
-<header>
-    <h1>Pulumi Console</h1>
-    <p>Server-rendered management view for organizations, projects, and stacks.</p>
-</header>
-
 <section>
-    <h2>User</h2>
-    @if (Model.CurrentUser is null)
-    {
-        <p><small>Unable to load user profile from API.</small></p>
-    }
-    else
-    {
-        <p><strong>@Model.CurrentUser.Name</strong> (@Model.CurrentUser.GitHubLogin)</p>
-    }
-</section>
+    <header>
+        <h1>Dashboard</h1>
+        <p>Overview for <strong>@Model.Owner</strong>.</p>
+    </header>
 
-<section>
-    <h2>Organizations</h2>
-    @if (Model.Organizations.Count == 0)
-    {
-        <p>No organizations found.</p>
-    }
-    else
-    {
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col">Organization</th>
-                    <th scope="col">Projects</th>
-                    <th scope="col">Stacks</th>
-                </tr>
-            </thead>
-            <tbody>
-            @foreach (var org in Model.Organizations)
-            {
-                <tr>
-                    <th scope="row"><a asp-page="/Organizations/Index" asp-route-org="@org.OrgName">@org.OrgName</a></th>
-                    <td>@org.ProjectCount</td>
-                    <td>@org.StackCount</td>
-                </tr>
-            }
-            </tbody>
-        </table>
-    }
+    <div class="dashboard-stats" role="list" aria-label="Owner summary">
+        <article role="listitem">
+            <header>Projects</header>
+            <p><strong>@Model.ProjectCount</strong></p>
+        </article>
+        <article role="listitem">
+            <header>Stacks</header>
+            <p><strong>@Model.Context.SelectedOwnerStacks.Count</strong></p>
+        </article>
+        <article role="listitem">
+            <header>Resources</header>
+            <p><strong>@Model.ResourceCount</strong></p>
+        </article>
+    </div>
 </section>
 
 <section>
     <h2>Recent stacks</h2>
-    @if (Model.Stacks.Count == 0)
+    @if (Model.RecentStacks.Count == 0)
     {
-        <p>No stacks found.</p>
+        <p>No stacks yet for this owner.</p>
     }
     else
     {
         <table>
             <thead>
                 <tr>
-                    <th scope="col">Organization</th>
                     <th scope="col">Project</th>
                     <th scope="col">Stack</th>
+                    <th scope="col">Last update</th>
                     <th scope="col">Resources</th>
                 </tr>
             </thead>
             <tbody>
-            @foreach (var stack in Model.Stacks)
+            @foreach (var stack in Model.RecentStacks)
             {
                 <tr>
-                    <td>@stack.OrgName</td>
-                    <td>
-                        <a asp-page="/Projects/Index" asp-route-org="@stack.OrgName" asp-route-project="@stack.ProjectName">@stack.ProjectName</a>
-                    </td>
+                    <td>@stack.ProjectName</td>
                     <th scope="row">
-                        <a asp-page="/Stacks/Index" asp-route-org="@stack.OrgName" asp-route-project="@stack.ProjectName" asp-route-stack="@stack.StackName">@stack.StackName</a>
+                        <a asp-page="/Stacks/Details"
+                           asp-route-org="@stack.OrgName"
+                           asp-route-project="@stack.ProjectName"
+                           asp-route-stack="@stack.StackName"
+                           asp-route-owner="@Model.Owner">
+                            @stack.StackName
+                        </a>
                     </th>
+                    <td>@FormatTime(stack.LastUpdate)</td>
                     <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
                 </tr>
             }
@@ -86,3 +66,18 @@
         </table>
     }
 </section>
+
+@functions {
+    private static string FormatTime(long? unixTimestamp)
+    {
+        if (!unixTimestamp.HasValue || unixTimestamp.Value <= 0)
+        {
+            return "No updates";
+        }
+
+        var value = unixTimestamp.Value > 1000000000000
+            ? DateTimeOffset.FromUnixTimeMilliseconds(unixTimestamp.Value)
+            : DateTimeOffset.FromUnixTimeSeconds(unixTimestamp.Value);
+        return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+}

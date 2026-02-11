@@ -355,3 +355,4 @@ MigrationBackup/
 # 
 /info/server.pid
 /integration/**/export.json
+src/**/.data
