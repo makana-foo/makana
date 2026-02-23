@@ -20,6 +20,18 @@ public sealed class LoginModel : PageModel
         return Page();
     }
 
+    public IActionResult OnGetSignIn(string? returnUrl = null)
+    {
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            return LocalRedirect(returnUrl ?? "/");
+        }
+
+        var redirectUri = string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl;
+        var properties = new AuthenticationProperties { RedirectUri = redirectUri };
+        return Challenge(properties, OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
     public IActionResult OnPostSignIn(string? returnUrl = null)
     {
         if (User.Identity?.IsAuthenticated == true)

@@ -13,4 +13,8 @@
     <ProjectReference Include="..\Makana.WebConsole\Makana.WebConsole.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.1.1" />
+  </ItemGroup>
+
 </Project>

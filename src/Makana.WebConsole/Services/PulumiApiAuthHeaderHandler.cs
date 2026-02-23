@@ -13,8 +13,8 @@ public sealed class PulumiApiAuthHeaderHandler(IHttpContextAccessor httpContextA
         var httpContext = httpContextAccessor.HttpContext;
         if (httpContext?.User?.Identity?.IsAuthenticated == true)
         {
-            var jwt = await httpContext.GetTokenAsync("access_token")
-                ?? await httpContext.GetTokenAsync("id_token");
+            var jwt = await httpContext.GetTokenAsync("id_token")
+                ?? await httpContext.GetTokenAsync("access_token");
 
             if (!string.IsNullOrWhiteSpace(jwt))
             {

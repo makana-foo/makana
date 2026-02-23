@@ -37,19 +37,21 @@ internal static class StackEndpoints
 
         app.MapGet("/api/stacks/{org}/{project}/{stack}", async (HttpContext context, string org, string project, string stack) =>
         {
+            var decodedProject = Uri.UnescapeDataString(project);
+            var decodedStack = Uri.UnescapeDataString(stack);
             var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, store, org);
             if (namespaceResolution.Failure is not null)
             {
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, decodedProject, decodedStack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var data = await store.GetStackDataByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var data = await store.GetStackDataByNamespaceIdAsync(namespaceResolution.NamespaceId!, decodedProject, decodedStack);
 
             Dictionary<string, string>? tags = null;
             if (data?.TagsJson is not null)
@@ -66,8 +68,8 @@ internal static class StackEndpoints
             var result = new Stack(
                 ids.Value.StackId,
                 org,
-                project,
-                stack,
+                decodedProject,
+                decodedStack,
                 null,
                 activeUpdate,
                 tags,

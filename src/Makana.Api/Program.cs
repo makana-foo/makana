@@ -29,12 +29,24 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var dbPath = Environment.GetEnvironmentVariable("DOTNET_API_DB");
+if (string.IsNullOrWhiteSpace(dbPath))
+{
+    throw new InvalidOperationException("DOTNET_API_DB is required.");
+}
+var dbDirectory = Path.GetDirectoryName(dbPath);
+if (!string.IsNullOrWhiteSpace(dbDirectory))
+{
+    Directory.CreateDirectory(dbDirectory);
+}
 
 builder.Services.AddSingleton(new Database($"Data Source={dbPath}"));
 builder.Services.AddSingleton<BackendStore>();
 
-var casdoorUrl = builder.Configuration["CASDOOR_URL"]
-    ?? throw new InvalidOperationException("CASDOOR_URL is required for API authentication.");
+var oidcProvider = builder.Configuration["OIDC_PROVIDER"] ?? "oidc";
+var normalizedOidcProvider = NormalizeProviderKey(oidcProvider);
+var oidcAuthority = builder.Configuration["OIDC_AUTHORITY"]
+    ?? throw new InvalidOperationException("OIDC_AUTHORITY is required for API authentication.");
+var oidcMetadataAddress = builder.Configuration["OIDC_METADATA_ADDRESS"];
 
 builder.Services
     .AddAuthentication(options =>
@@ -58,7 +70,11 @@ builder.Services
     })
     .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
     {
-        options.Authority = casdoorUrl.TrimEnd('/');
+        options.Authority = oidcAuthority.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(oidcMetadataAddress))
+        {
+            options.MetadataAddress = oidcMetadataAddress;
+        }
         options.RequireHttpsMetadata = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -72,6 +88,18 @@ builder.Services
                     !identity.HasClaim(c => c.Type == PulumiAuthenticationDefaults.AuthKindClaim))
                 {
                     identity.AddClaim(new Claim(PulumiAuthenticationDefaults.AuthKindClaim, "bearer"));
+                }
+
+                if (context.Principal?.Identity is ClaimsIdentity userIdentity &&
+                    !userIdentity.HasClaim(c => c.Type == PulumiAuthenticationDefaults.UserIdClaim))
+                {
+                    var canonicalUserId = OidcClaimHelpers.ResolveCanonicalUserId(
+                        context.Principal,
+                        normalizedOidcProvider);
+                    if (!string.IsNullOrWhiteSpace(canonicalUserId))
+                    {
+                        userIdentity.AddClaim(new Claim(PulumiAuthenticationDefaults.UserIdClaim, canonicalUserId));
+                    }
                 }
 
                 return Task.CompletedTask;
@@ -167,6 +195,10 @@ if (!string.IsNullOrWhiteSpace(bootstrapTokens))
 }
 
 var secretKey = await store.GetOrCreateSecretKeyAsync();
+var oidcSettings = new CoreEndpoints.OidcSettings(
+    ProviderKey: normalizedOidcProvider,
+    Authority: oidcAuthority.TrimEnd('/'),
+    MetadataAddress: oidcMetadataAddress);
 
 app.UsePulumiMediaType();
 app.UseGzipRequestDecompression();
@@ -178,7 +210,7 @@ app.UseWhen(
         branch.UseAuthorization();
     });
 
-app.MapCoreEndpoints(store);
+app.MapCoreEndpoints(store, oidcSettings);
 app.MapStackEndpoints(store, secretKey);
 app.MapUpdateEndpoints(store);
 app.MapDeploymentEndpoints(store, secretKey);
@@ -187,3 +219,9 @@ app.MapUploadEndpoints(store);
 app.MapConsoleEndpoints();
 
 app.Run();
+
+static string NormalizeProviderKey(string provider)
+{
+    var value = provider.Trim().ToLowerInvariant();
+    return string.IsNullOrWhiteSpace(value) ? "oidc" : value;
+}

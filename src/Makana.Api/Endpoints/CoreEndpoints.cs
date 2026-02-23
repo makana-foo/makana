@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Makana.Api.Contracts;
@@ -15,11 +14,14 @@ namespace Makana.Api.Endpoints;
 
 internal static class CoreEndpoints
 {
-    public static IEndpointRouteBuilder MapCoreEndpoints(this IEndpointRouteBuilder app, BackendStore store)
+    public static IEndpointRouteBuilder MapCoreEndpoints(
+        this IEndpointRouteBuilder app,
+        BackendStore store,
+        OidcSettings oidcSettings)
     {
         app.MapGet("/api/user", async (HttpContext context) =>
         {
-            var resolved = await ResolveIdentityAsync(context, store);
+            var resolved = await ResolveIdentityAsync(context, store, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -30,7 +32,7 @@ internal static class CoreEndpoints
 
         app.MapGet("/api/user/stacks", async (HttpContext context, HttpRequest request, [FromQuery] string? project, [FromQuery(Name = "organization")] string? organization) =>
         {
-            var resolved = await ResolveIdentityAsync(context, store);
+            var resolved = await ResolveIdentityAsync(context, store, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -81,7 +83,7 @@ internal static class CoreEndpoints
 
         app.MapGet("/api/user/organizations/default", async (HttpContext context) =>
         {
-            var resolved = await ResolveIdentityAsync(context, store);
+            var resolved = await ResolveIdentityAsync(context, store, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -117,14 +119,16 @@ internal static class CoreEndpoints
                 return Results.BadRequest(new ErrorResponse(400, "invalid token exchange request", null));
             }
 
-            var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
-            var casdoorUrl = configuration["CASDOOR_URL"];
-            if (string.IsNullOrWhiteSpace(casdoorUrl))
+            if (string.IsNullOrWhiteSpace(oidcSettings.Authority))
             {
-                return Results.Problem("CASDOOR_URL is not configured for token exchange.", statusCode: 500);
+                return Results.Problem("OIDC_AUTHORITY is not configured for token exchange.", statusCode: 500);
             }
 
-            var validatedPrincipal = await ValidateSubjectTokenAsync(casdoorUrl, subjectToken, context.RequestAborted);
+            var validatedPrincipal = await ValidateSubjectTokenAsync(
+                oidcSettings.Authority,
+                oidcSettings.MetadataAddress,
+                subjectToken,
+                context.RequestAborted);
             if (validatedPrincipal is null)
             {
                 return Results.Unauthorized();
@@ -134,7 +138,11 @@ internal static class CoreEndpoints
             (string UserId, string? OrgId) resolved;
             try
             {
-                resolved = await EnsureIdentityFromClaimsAsync(validatedPrincipal, store, requestedOrg);
+                resolved = await EnsureIdentityFromClaimsAsync(
+                    validatedPrincipal,
+                    store,
+                    requestedOrg,
+                    oidcSettings.ProviderKey);
             }
             catch
             {
@@ -168,7 +176,10 @@ internal static class CoreEndpoints
         return app;
     }
 
-    private static async Task<ResolvedUser?> ResolveIdentityAsync(HttpContext context, BackendStore store)
+    private static async Task<ResolvedUser?> ResolveIdentityAsync(
+        HttpContext context,
+        BackendStore store,
+        string providerKey)
     {
         var authKind = context.User.FindFirst(PulumiAuthenticationDefaults.AuthKindClaim)?.Value;
         var userId = context.User.FindFirst(PulumiAuthenticationDefaults.UserIdClaim)?.Value;
@@ -187,7 +198,11 @@ internal static class CoreEndpoints
         {
             try
             {
-                var ensured = await EnsureIdentityFromClaimsAsync(context.User, store, requestedOrgLogin: null);
+                var ensured = await EnsureIdentityFromClaimsAsync(
+                    context.User,
+                    store,
+                    requestedOrgLogin: null,
+                    providerKey);
                 return await BuildResolvedUserAsync(store, ensured.UserId, ensured.OrgId);
             }
             catch
@@ -330,17 +345,13 @@ internal static class CoreEndpoints
     private static async Task<(string UserId, string? OrgId)> EnsureIdentityFromClaimsAsync(
         ClaimsPrincipal principal,
         BackendStore store,
-        string? requestedOrgLogin)
+        string? requestedOrgLogin,
+        string providerKey)
     {
-        var subject = GetClaim(principal, "sub", ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(subject))
-        {
-            throw new InvalidOperationException("Missing subject claim.");
-        }
-
-        var userId = "casdoor:" + subject;
-        var login = BuildLogin(principal, subject);
-        var displayName = GetClaim(principal, "name") ?? login;
+        var login = BuildLogin(principal);
+        var userId = OidcClaimHelpers.ResolveCanonicalUserId(principal, providerKey)
+            ?? throw new InvalidOperationException("Missing subject claim.");
+        var displayName = GetClaim(principal, "name", ClaimTypes.Name) ?? login;
         var email = GetClaim(principal, "email", ClaimTypes.Email);
         var avatar = GetClaim(principal, "picture") ?? string.Empty;
 
@@ -367,11 +378,14 @@ internal static class CoreEndpoints
     }
 
     private static async Task<ClaimsPrincipal?> ValidateSubjectTokenAsync(
-        string casdoorUrl,
+        string oidcAuthority,
+        string? metadataAddress,
         string subjectToken,
         CancellationToken cancellationToken)
     {
-        var metadata = casdoorUrl.TrimEnd('/') + "/.well-known/openid-configuration";
+        var metadata = string.IsNullOrWhiteSpace(metadataAddress)
+            ? oidcAuthority.TrimEnd('/') + "/.well-known/openid-configuration"
+            : metadataAddress;
         var configManager = new ConfigurationManager<OpenIdConnectConfiguration>(
             metadata,
             new OpenIdConnectConfigurationRetriever(),
@@ -412,6 +426,11 @@ internal static class CoreEndpoints
         return null;
     }
 
+    internal readonly record struct OidcSettings(
+        string ProviderKey,
+        string Authority,
+        string? MetadataAddress);
+
     private static int ParseExpirationSeconds(string raw)
     {
         if (!int.TryParse(raw, out var parsed))
@@ -422,58 +441,28 @@ internal static class CoreEndpoints
         return Math.Clamp(parsed, 60, 86400);
     }
 
-    private static string BuildLogin(ClaimsPrincipal principal, string subject)
+    private static string BuildLogin(ClaimsPrincipal principal)
     {
-        var preferred = GetClaim(principal, "preferred_username", "username", "login", ClaimTypes.Upn);
-        if (!string.IsNullOrWhiteSpace(preferred))
+        var assertedLogin = GetClaim(
+            principal,
+            "preferred_username",
+            "username",
+            "login",
+            "nickname",
+            ClaimTypes.Upn,
+            ClaimTypes.Name);
+        if (string.IsNullOrWhiteSpace(assertedLogin))
         {
-            return SanitizeLogin(preferred);
+            throw new InvalidOperationException("Missing OIDC login claim.");
         }
 
-        var email = GetClaim(principal, "email", ClaimTypes.Email);
-        if (!string.IsNullOrWhiteSpace(email))
+        var sanitized = SanitizeLogin(assertedLogin);
+        if (string.IsNullOrWhiteSpace(sanitized))
         {
-            var at = email.IndexOf('@');
-            var local = at > 0 ? email[..at] : email;
-            if (!string.IsNullOrWhiteSpace(local))
-            {
-                return SanitizeLogin(local);
-            }
+            throw new InvalidOperationException("Invalid OIDC login claim.");
         }
 
-        var fromSubject = TryExtractLoginFromSubject(subject);
-        if (!string.IsNullOrWhiteSpace(fromSubject))
-        {
-            return SanitizeLogin(fromSubject);
-        }
-
-        var fromName = GetClaim(principal, "name");
-        if (!string.IsNullOrWhiteSpace(fromName))
-        {
-            return SanitizeLogin(fromName);
-        }
-
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(subject))).ToLowerInvariant();
-        return "user-" + hash[..12];
-    }
-
-    private static string? TryExtractLoginFromSubject(string subject)
-    {
-        if (string.IsNullOrWhiteSpace(subject))
-        {
-            return null;
-        }
-
-        var value = subject.Trim();
-
-        // Casdoor commonly encodes subject as "<owner>/<username>".
-        var slashIndex = value.LastIndexOf('/');
-        if (slashIndex >= 0 && slashIndex < value.Length - 1)
-        {
-            return value[(slashIndex + 1)..];
-        }
-
-        return null;
+        return sanitized;
     }
 
     private static string SanitizeLogin(string value)

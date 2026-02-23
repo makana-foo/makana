@@ -32,18 +32,21 @@ builder.Services
     })
     .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
     {
-        var casdoorUrl = builder.Configuration["CASDOOR_URL"]
-            ?? throw new InvalidOperationException("CASDOOR_URL was not configured. Ensure Aspire AppHost injects Casdoor settings.");
-        var casdoorClientId = builder.Configuration["CASDOOR_CLIENT_ID"]
-            ?? throw new InvalidOperationException("CASDOOR_CLIENT_ID was not configured.");
-        var casdoorClientSecret = builder.Configuration["CASDOOR_CLIENT_SECRET"]
-            ?? throw new InvalidOperationException("CASDOOR_CLIENT_SECRET was not configured.");
+        var oidcAuthority = builder.Configuration["OIDC_AUTHORITY"]
+            ?? throw new InvalidOperationException("OIDC_AUTHORITY was not configured.");
+        var oidcClientId = builder.Configuration["OIDC_CLIENT_ID"]
+            ?? throw new InvalidOperationException("OIDC_CLIENT_ID was not configured.");
+        var oidcClientSecret = builder.Configuration["OIDC_CLIENT_SECRET"]
+            ?? throw new InvalidOperationException("OIDC_CLIENT_SECRET was not configured.");
+        var oidcMetadataAddress = builder.Configuration["OIDC_METADATA_ADDRESS"];
 
-        options.Authority = casdoorUrl.TrimEnd('/');
+        options.Authority = oidcAuthority.TrimEnd('/');
         options.RequireHttpsMetadata = false;
-        options.MetadataAddress = $"{options.Authority}/.well-known/openid-configuration";
-        options.ClientId = casdoorClientId;
-        options.ClientSecret = casdoorClientSecret;
+        options.MetadataAddress = string.IsNullOrWhiteSpace(oidcMetadataAddress)
+            ? $"{options.Authority}/.well-known/openid-configuration"
+            : oidcMetadataAddress;
+        options.ClientId = oidcClientId;
+        options.ClientSecret = oidcClientSecret;
         options.ResponseType = OpenIdConnectResponseType.Code;
         options.UsePkce = true;
         options.SaveTokens = true;
