@@ -1,9 +1,12 @@
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace Makana.WebConsole.Services;
 
-public sealed class PulumiApiAuthHeaderHandler(IHttpContextAccessor httpContextAccessor, IConfiguration configuration)
+public sealed class PulumiApiAuthHeaderHandler(
+    IHttpContextAccessor httpContextAccessor,
+    IConfiguration configuration)
     : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -13,8 +16,9 @@ public sealed class PulumiApiAuthHeaderHandler(IHttpContextAccessor httpContextA
         var httpContext = httpContextAccessor.HttpContext;
         if (httpContext?.User?.Identity?.IsAuthenticated == true)
         {
-            var jwt = await httpContext.GetTokenAsync("id_token")
-                ?? await httpContext.GetTokenAsync("access_token");
+            var authResult = await httpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            var jwt = authResult.Properties?.GetTokenValue("access_token")
+                ?? await httpContext.GetTokenAsync(CookieAuthenticationDefaults.AuthenticationScheme, "access_token");
 
             if (!string.IsNullOrWhiteSpace(jwt))
             {

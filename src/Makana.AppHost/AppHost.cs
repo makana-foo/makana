@@ -16,9 +16,6 @@ var pocketIdEncryptionKey = builder.AddParameter(
     PocketIdEncryptionKeyParam,
     secret: true);
 
-var makanaApiTestToken = builder.AddParameter("makana-api-test-token", secret: true);
-var makanaBootstrapUserId = builder.AddParameter("makana-bootstrap-user-id");
-var makanaBootstrapUserLogin = builder.AddParameter("makana-bootstrap-user-login");
 var makanaApiDbPath = builder.AddParameter("makana-api-db-path");
 
 var oidcProviderRaw = await oidcProvider.Resource.GetValueAsync(CancellationToken.None);
@@ -28,17 +25,13 @@ var oidcModeValue = oidcModeRaw!;
 var oidcMetadataAddress = ReferenceExpression.Create($"{oidcAuthority}/.well-known/openid-configuration");
 
 var api = builder.AddProject<Projects.Makana_Api>("api")
-    .WithEnvironment("MAKANA_BOOTSTRAP_API_TOKENS", makanaApiTestToken)
     .WithEnvironment("DOTNET_API_DB", makanaApiDbPath)
-    .WithEnvironment("MAKANA_BOOTSTRAP_USER_ID", makanaBootstrapUserId)
-    .WithEnvironment("MAKANA_BOOTSTRAP_USER_LOGIN", makanaBootstrapUserLogin)
-    .WithEnvironment("MAKANA_BOOTSTRAP_USER_NAME", "Aspire Test User")
-    .WithEnvironment("MAKANA_BOOTSTRAP_ORG_ID", string.Empty)
-    .WithEnvironment("MAKANA_BOOTSTRAP_ORG_LOGIN", string.Empty)
     .WithEnvironment("OIDC_PROVIDER", oidcProvider)
     .WithEnvironment("OIDC_MODE", oidcMode)
     .WithEnvironment("OIDC_CLIENT_ID", oidcClientId)
     .WithEnvironment("OIDC_CLIENT_SECRET", oidcClientSecret)
+    .WithEnvironment("OIDC_API_AUDIENCE", oidcClientId)
+    .WithEnvironment("OIDC_SUBJECT_TOKEN_AUDIENCE", oidcClientId)
     .WithEnvironment("OIDC_METADATA_ADDRESS", oidcMetadataAddress)
     .WithHttpHealthCheck(path: "/health", endpointName: "http");
 
@@ -67,7 +60,8 @@ switch (oidcProviderValue)
         throw new InvalidOperationException($"Unsupported OIDC provider '{oidcProviderValue}'. Supported values: casdoor, pocketid.");
 }
 
-builder.Build().Run();
+var app = builder.Build();
+await app.RunAsync();
 
 void ConfigureCasdoorProvider(bool useLocal)
 {
@@ -132,15 +126,16 @@ void ConfigurePocketIdProvider(bool useLocal)
             .WithHttpHealthCheck(path: "/.well-known/openid-configuration", endpointName: "http")
             .WaitFor(pocketId);
 
-        var localAuthority = pocketIdProxy.GetEndpoint("https");
-        var localMetadataAddress = ReferenceExpression.Create($"{pocketIdProxy.GetEndpoint("http")}/.well-known/openid-configuration");
+        var publicAuthority = oidcAuthority;
+        var metadataEndpoint = pocketIdProxy.GetEndpoint("http");
+        var localMetadataAddress = ReferenceExpression.Create($"{metadataEndpoint}/.well-known/openid-configuration");
 
-        pocketId.WithEnvironment("APP_URL", localAuthority);
+        pocketId.WithEnvironment("APP_URL", publicAuthority);
 
-        api.WithEnvironment("OIDC_AUTHORITY", localAuthority)
+        api.WithEnvironment("OIDC_AUTHORITY", publicAuthority)
            .WithEnvironment("OIDC_METADATA_ADDRESS", localMetadataAddress);
 
-        webConsole.WithEnvironment("OIDC_AUTHORITY", localAuthority)
+        webConsole.WithEnvironment("OIDC_AUTHORITY", publicAuthority)
                   .WithEnvironment("OIDC_METADATA_ADDRESS", localMetadataAddress);
 
         return;

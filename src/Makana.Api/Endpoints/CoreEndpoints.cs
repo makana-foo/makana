@@ -1,14 +1,10 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
 using System.Text.Json;
 using Makana.Api.Contracts;
 using Makana.Api.Security;
 using Makana.Api.Storage;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Makana.Api.Endpoints;
 
@@ -17,11 +13,12 @@ internal static class CoreEndpoints
     public static IEndpointRouteBuilder MapCoreEndpoints(
         this IEndpointRouteBuilder app,
         BackendStore store,
-        OidcSettings oidcSettings)
+        OidcSettings oidcSettings,
+        OidcUserInfoClient userInfoClient)
     {
         app.MapGet("/api/user", async (HttpContext context) =>
         {
-            var resolved = await ResolveIdentityAsync(context, store, oidcSettings.ProviderKey);
+            var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -32,7 +29,7 @@ internal static class CoreEndpoints
 
         app.MapGet("/api/user/stacks", async (HttpContext context, HttpRequest request, [FromQuery] string? project, [FromQuery(Name = "organization")] string? organization) =>
         {
-            var resolved = await ResolveIdentityAsync(context, store, oidcSettings.ProviderKey);
+            var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -83,7 +80,7 @@ internal static class CoreEndpoints
 
         app.MapGet("/api/user/organizations/default", async (HttpContext context) =>
         {
-            var resolved = await ResolveIdentityAsync(context, store, oidcSettings.ProviderKey);
+            var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -119,17 +116,8 @@ internal static class CoreEndpoints
                 return Results.BadRequest(new ErrorResponse(400, "invalid token exchange request", null));
             }
 
-            if (string.IsNullOrWhiteSpace(oidcSettings.Authority))
-            {
-                return Results.Problem("OIDC_AUTHORITY is not configured for token exchange.", statusCode: 500);
-            }
-
-            var validatedPrincipal = await ValidateSubjectTokenAsync(
-                oidcSettings.Authority,
-                oidcSettings.MetadataAddress,
-                subjectToken,
-                context.RequestAborted);
-            if (validatedPrincipal is null)
+            var subjectTokenAuth = await context.AuthenticateAsync(PulumiAuthenticationDefaults.OidcSubjectTokenScheme);
+            if (!subjectTokenAuth.Succeeded || subjectTokenAuth.Principal is null)
             {
                 return Results.Unauthorized();
             }
@@ -139,7 +127,7 @@ internal static class CoreEndpoints
             try
             {
                 resolved = await EnsureIdentityFromClaimsAsync(
-                    validatedPrincipal,
+                    subjectTokenAuth.Principal,
                     store,
                     requestedOrg,
                     oidcSettings.ProviderKey);
@@ -179,6 +167,7 @@ internal static class CoreEndpoints
     private static async Task<ResolvedUser?> ResolveIdentityAsync(
         HttpContext context,
         BackendStore store,
+        OidcUserInfoClient userInfoClient,
         string providerKey)
     {
         var authKind = context.User.FindFirst(PulumiAuthenticationDefaults.AuthKindClaim)?.Value;
@@ -196,10 +185,19 @@ internal static class CoreEndpoints
 
         if (string.Equals(authKind, "bearer", StringComparison.OrdinalIgnoreCase))
         {
+            var principal = context.User;
+            if (string.IsNullOrWhiteSpace(OidcClaimHelpers.ResolveLogin(principal)))
+            {
+                principal = await userInfoClient.TryEnrichPrincipalAsync(
+                    context,
+                    principal,
+                    context.RequestAborted) ?? principal;
+            }
+
             try
             {
                 var ensured = await EnsureIdentityFromClaimsAsync(
-                    context.User,
+                    principal,
                     store,
                     requestedOrgLogin: null,
                     providerKey);
@@ -349,8 +347,9 @@ internal static class CoreEndpoints
         string providerKey)
     {
         var login = BuildLogin(principal);
-        var userId = OidcClaimHelpers.ResolveCanonicalUserId(principal, providerKey)
+        var canonicalUserId = OidcClaimHelpers.ResolveCanonicalUserId(principal, providerKey)
             ?? throw new InvalidOperationException("Missing subject claim.");
+        var userId = await store.GetUserIdByLoginAsync(login) ?? canonicalUserId;
         var displayName = GetClaim(principal, "name", ClaimTypes.Name) ?? login;
         var email = GetClaim(principal, "email", ClaimTypes.Email);
         var avatar = GetClaim(principal, "picture") ?? string.Empty;
@@ -377,44 +376,6 @@ internal static class CoreEndpoints
         return (userId, orgId);
     }
 
-    private static async Task<ClaimsPrincipal?> ValidateSubjectTokenAsync(
-        string oidcAuthority,
-        string? metadataAddress,
-        string subjectToken,
-        CancellationToken cancellationToken)
-    {
-        var metadata = string.IsNullOrWhiteSpace(metadataAddress)
-            ? oidcAuthority.TrimEnd('/') + "/.well-known/openid-configuration"
-            : metadataAddress;
-        var configManager = new ConfigurationManager<OpenIdConnectConfiguration>(
-            metadata,
-            new OpenIdConnectConfigurationRetriever(),
-            new HttpDocumentRetriever { RequireHttps = false });
-
-        try
-        {
-            var config = await configManager.GetConfigurationAsync(cancellationToken);
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var parameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidIssuer = config.Issuer,
-                ValidateAudience = false,
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKeys = config.SigningKeys,
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.FromMinutes(2)
-            };
-
-            var principal = tokenHandler.ValidateToken(subjectToken, parameters, out _);
-            return principal;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
     private static string? TryParseAudienceOrg(string audience)
     {
         const string prefix = "urn:pulumi:org:";
@@ -427,9 +388,7 @@ internal static class CoreEndpoints
     }
 
     internal readonly record struct OidcSettings(
-        string ProviderKey,
-        string Authority,
-        string? MetadataAddress);
+        string ProviderKey);
 
     private static int ParseExpirationSeconds(string raw)
     {
@@ -443,45 +402,13 @@ internal static class CoreEndpoints
 
     private static string BuildLogin(ClaimsPrincipal principal)
     {
-        var assertedLogin = GetClaim(
-            principal,
-            "preferred_username",
-            "username",
-            "login",
-            "nickname",
-            ClaimTypes.Upn,
-            ClaimTypes.Name);
-        if (string.IsNullOrWhiteSpace(assertedLogin))
+        var login = OidcClaimHelpers.ResolveLogin(principal);
+        if (string.IsNullOrWhiteSpace(login))
         {
             throw new InvalidOperationException("Missing OIDC login claim.");
         }
 
-        var sanitized = SanitizeLogin(assertedLogin);
-        if (string.IsNullOrWhiteSpace(sanitized))
-        {
-            throw new InvalidOperationException("Invalid OIDC login claim.");
-        }
-
-        return sanitized;
-    }
-
-    private static string SanitizeLogin(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var ch in value.Trim().ToLowerInvariant())
-        {
-            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')
-            {
-                builder.Append(ch);
-            }
-            else
-            {
-                builder.Append('-');
-            }
-        }
-
-        var result = builder.ToString().Trim('-');
-        return string.IsNullOrWhiteSpace(result) ? "user" : result;
+        return login;
     }
 
     private static string? GetClaim(ClaimsPrincipal principal, params string[] claimTypes)

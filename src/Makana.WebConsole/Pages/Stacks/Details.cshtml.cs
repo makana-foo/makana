@@ -23,16 +23,23 @@ public sealed class DetailsModel(PulumiApiClient apiClient, ILogger<DetailsModel
 
     public async Task<IActionResult> OnGetAsync(string org, CancellationToken cancellationToken)
     {
-        Org = org;
-        Owner ??= org;
-        if (string.IsNullOrWhiteSpace(org) || string.IsNullOrWhiteSpace(Project) || string.IsNullOrWhiteSpace(Stack))
+        var decodedOrg = DecodeRouteSegment(org);
+        var decodedProject = DecodeRouteSegment(Project);
+        var decodedStack = DecodeRouteSegment(Stack);
+
+        Org = decodedOrg;
+        Project = decodedProject;
+        Stack = decodedStack;
+        Owner ??= decodedOrg;
+
+        if (string.IsNullOrWhiteSpace(decodedOrg) || string.IsNullOrWhiteSpace(decodedProject) || string.IsNullOrWhiteSpace(decodedStack))
         {
             return RedirectToPage("/Stacks/Index");
         }
 
         try
         {
-            Details = await apiClient.GetStackAsync(org, Project, Stack, cancellationToken);
+            Details = await apiClient.GetStackAsync(decodedOrg, decodedProject, decodedStack, cancellationToken);
             if (Details is null)
             {
                 return NotFound();
@@ -40,9 +47,26 @@ public sealed class DetailsModel(PulumiApiClient apiClient, ILogger<DetailsModel
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed loading stack {Stack} in {Org}/{Project}", Stack, org, Project);
+            logger.LogError(ex, "Failed loading stack {Stack} in {Org}/{Project}", decodedStack, decodedOrg, decodedProject);
         }
 
         return Page();
+    }
+
+    private static string DecodeRouteSegment(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        try
+        {
+            return Uri.UnescapeDataString(value);
+        }
+        catch
+        {
+            return value;
+        }
     }
 }
