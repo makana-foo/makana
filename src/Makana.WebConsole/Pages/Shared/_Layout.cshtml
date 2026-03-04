@@ -8,7 +8,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - Makana Console</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@picocss/pico@@2/css/pico.min.css" />
+    <script>
+        (() => {
+            const theme = localStorage.getItem("theme");
+            if (theme === "light" || theme === "dark") {
+                document.documentElement.style.colorScheme = theme;
+                document.documentElement.setAttribute("data-theme", theme);
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="~/lib/oat/oat.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/Makana.WebConsole.styles.css" asp-append-version="true" />
 </head>
@@ -32,40 +41,48 @@
 }
 else
 {
-    <div class="console-shell">
-        <component type="typeof(ConsoleSidebar)" render-mode="Static" param-Context="navContext" param-ActiveSection="activeSection" />
-
-        <div class="console-main">
-            <header class="console-topbar">
+    <div data-sidebar-layout="always">
+        <nav data-topnav aria-label="Console toolbar">
+            <button type="button" class="outline small" data-sidebar-toggle aria-label="Toggle sidebar">Menu</button>
+            <div class="hstack justify-between w-100">
                 <div>
                     <strong>@(ViewData["Title"] ?? "Makana Console")</strong>
                     @if (!string.IsNullOrWhiteSpace(navContext.SelectedOwner))
                     {
-                        <small>Owner: @navContext.SelectedOwner</small>
+                        <small class="text-light">Owner: @navContext.SelectedOwner</small>
                     }
                 </div>
-                <div class="topbar-actions">
+                <div class="hstack">
                     @if (User.Identity?.IsAuthenticated == true)
                     {
-                        <small>@(User.Identity.Name ?? "signed-in")</small>
+                        <small class="text-light">@(User.Identity.Name ?? "signed-in")</small>
                         <form method="post" asp-page="/Login" asp-page-handler="SignOut">
-                            <button type="submit" class="secondary">Logout</button>
+                            <button type="submit" class="outline small">Logout</button>
                         </form>
                     }
                     else
                     {
-                        <a role="button" class="secondary" asp-page="/Login">Login</a>
+                        <a class="button outline small" asp-page="/Login">Login</a>
                     }
                 </div>
-            </header>
+            </div>
+        </nav>
 
-            <main class="console-content">
+        <component type="typeof(ConsoleSidebar)"
+                   render-mode="Static"
+                   param-Context="navContext"
+                   param-ActiveSection="activeSection" />
+
+        <main>
+            <div class="container">
                 @RenderBody()
-            </main>
-        </div>
+            </div>
+        </main>
     </div>
 }
 
+    <script type="module" src="~/lib/oat/oat.min.js" asp-append-version="true"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

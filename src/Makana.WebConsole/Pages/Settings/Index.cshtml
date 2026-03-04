@@ -8,35 +8,48 @@
 <section>
     <header>
         <h1>Settings</h1>
-        <p>Current account and owner context.</p>
+        <p class="text-light">Current account and owner context.</p>
     </header>
 
-    <article>
-        <header>Identity</header>
+    <article class="card">
+        <header>
+            <h3>Identity</h3>
+            <p class="text-light">Resolved from the Makana API and current OIDC session.</p>
+        </header>
         @if (Model.Context.User is null)
         {
-            <p>Unable to load account details from the API.</p>
+            <div role="alert" data-variant="error">
+                <strong>Unavailable.</strong> Unable to load account details from the API.
+            </div>
         }
         else
         {
-            <dl class="project-facts">
-                <div>
-                    <dt>User</dt>
-                    <dd>@Model.Context.User.Name</dd>
+            <div class="row">
+                <div class="col-6">
+                    <label data-field>
+                        User
+                        <input type="text" value="@Model.Context.User.Name" readonly />
+                    </label>
                 </div>
-                <div>
-                    <dt>Login</dt>
-                    <dd>@Model.Context.User.GitHubLogin</dd>
+                <div class="col-6">
+                    <label data-field>
+                        Login
+                        <input type="text" value="@Model.Context.User.GitHubLogin" readonly />
+                    </label>
                 </div>
-                <div>
-                    <dt>Email</dt>
-                    <dd>@(Model.Context.User.Email ?? "not provided")</dd>
+                <div class="col-6">
+                    <label data-field>
+                        Email
+                        <input type="text" value="@(Model.Context.User.Email ?? "not provided")" readonly />
+                    </label>
                 </div>
-                <div>
-                    <dt>Selected owner</dt>
-                    <dd>@(Model.Owner ?? "none")</dd>
+                <div class="col-6">
+                    <label data-field>
+                        Selected owner
+                        <input type="text" value="@(Model.Owner ?? "none")" readonly />
+                    </label>
                 </div>
-            </dl>
+            </div>
         }
     </article>
 </section>

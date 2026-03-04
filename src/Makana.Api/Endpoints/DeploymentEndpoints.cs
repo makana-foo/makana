@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Makana.Api.Contracts;
 using Makana.Api.Storage;
@@ -6,6 +7,8 @@ namespace Makana.Api.Endpoints;
 
 internal static class DeploymentEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapDeploymentEndpoints(this IEndpointRouteBuilder app, BackendStore store, byte[] secretKey)
     {
         app.MapGet("/api/stacks/{org}/{project}/{stack}/deployments/settings", async (string org, string project, string stack) =>

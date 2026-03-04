@@ -1,40 +1,44 @@
-@page "{org?}"
+@page "{owner?}"
 @model Makana.WebConsole.Pages.Organizations.IndexModel
 @{
-    ViewData["Title"] = $"Organization {Model.Org}";
+    ViewData["Title"] = $"Organization {Model.Owner}";
 }
 
 <header>
-    <h1>Organization: @Model.Org</h1>
-    <p><a asp-page="/Index">Back to dashboard</a></p>
+    <h1>Organization: @Model.Owner</h1>
+    <p class="text-light"><a asp-page="/Index" asp-route-owner="@Model.Owner">Back to dashboard</a></p>
 </header>
 
 <section>
     <h2>Projects</h2>
     @if (Model.Projects.Count == 0)
     {
-        <p>No projects found for this organization.</p>
+        <article class="card">
+            <p>No projects found for this organization.</p>
+        </article>
     }
     else
     {
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col">Project</th>
-                    <th scope="col">Stacks</th>
-                </tr>
-            </thead>
-            <tbody>
-            @foreach (var project in Model.Projects)
-            {
-                <tr>
-                    <th scope="row">
-                        <a asp-page="/Projects/Index" asp-route-org="@Model.Org" asp-route-project="@project.ProjectName">@project.ProjectName</a>
-                    </th>
-                    <td>@project.StackCount</td>
-                </tr>
-            }
-            </tbody>
-        </table>
+        <div class="table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Project</th>
+                        <th scope="col">Stacks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var project in Model.Projects)
+                {
+                    <tr>
+                        <th scope="row">
+                            <a asp-page="/Projects/Index" asp-route-owner="@Model.Owner" asp-route-project="@project.ProjectName">@project.ProjectName</a>
+                        </th>
+                        <td>@project.StackCount</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
     }
 </section>

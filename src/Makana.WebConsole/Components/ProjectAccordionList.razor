@@ -4,53 +4,56 @@
 
 @if (Projects.Count == 0)
 {
-    <article>
-        <header>No projects found</header>
-        <p>Create a stack with the Pulumi CLI to populate this view.</p>
+    <article class="card align-center">
+        <header>
+            <h3>No projects found</h3>
+            <p class="text-light">Create a stack with the Pulumi CLI to populate this view.</p>
+        </header>
     </article>
 }
 else
 {
     foreach (var project in Projects)
     {
-        <details class="project-card" open>
+        <details open>
             <summary>
-                <span class="project-title">@project.ProjectName</span>
-                <span class="project-meta">@project.Stacks.Count stack(s)</span>
+                <div class="hstack justify-between items-center">
+                    <div>
+                        <h3>@project.ProjectName</h3>
+                        <p class="text-light">@(project.Description ?? "No project description provided.")</p>
+                    </div>
+                    <span class="badge secondary">@project.Stacks.Count stack(s)</span>
+                </div>
             </summary>
 
-            <p class="project-description">@(project.Description ?? "No project description provided.")</p>
-
-            <dl class="project-facts">
-                <div>
-                    <dt>Language</dt>
-                    <dd>@(project.Language ?? "unknown")</dd>
+            <article class="card mt-4">
+                <div class="hstack mb-4">
+                    <span class="badge">@(project.Language ?? "unknown")</span>
+                    <span class="badge outline">Updated @FormatLastUpdate(project.LastUpdated)</span>
                 </div>
-                <div>
-                    <dt>Last update</dt>
-                    <dd>@FormatLastUpdate(project.LastUpdated)</dd>
-                </div>
-            </dl>
 
-            <table>
-                <thead>
-                    <tr>
-                        <th scope="col">Stack</th>
-                        <th scope="col">Updated</th>
-                        <th scope="col">Resources</th>
-                    </tr>
-                </thead>
-                <tbody>
-                @foreach (var stack in project.Stacks)
-                {
-                    <tr>
-                        <th scope="row"><a href="@StackHref(stack)">@stack.StackName</a></th>
-                        <td>@FormatLastUpdate(ToDateTimeOffset(stack.LastUpdate))</td>
-                        <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
-                    </tr>
-                }
-                </tbody>
-            </table>
+                <div class="table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Stack</th>
+                                <th scope="col">Updated</th>
+                                <th scope="col">Resources</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var stack in project.Stacks)
+                        {
+                            <tr>
+                                <th scope="row"><a href="@StackHref(stack)">@stack.StackName</a></th>
+                                <td>@FormatLastUpdate(ToDateTimeOffset(stack.LastUpdate))</td>
+                                <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </article>
         </details>
     }
 }
@@ -70,10 +73,9 @@ else
             "/Stacks/Details",
             new
             {
-                org = stack.OrgName,
+                owner = stack.OrgName,
                 project = stack.ProjectName,
                 stack = stack.StackName,
-                owner = SelectedOwner,
             });
 
     private string PageHref(string page, object? values = null)

@@ -8,41 +8,44 @@
 <section>
     <header>
         <h1>Resources</h1>
-        <p>Resource counts by stack for <strong>@Model.Owner</strong>. Total: <strong>@Model.TotalResources</strong></p>
+        <p class="text-light">Resource counts by stack for <strong>@Model.Owner</strong>. Total: <strong>@Model.TotalResources</strong></p>
     </header>
 
     @if (Model.Stacks.Count == 0)
     {
-        <p>No stacks found for this owner.</p>
+        <article class="card">
+            <p>No stacks found for this owner.</p>
+        </article>
     }
     else
     {
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col">Project</th>
-                    <th scope="col">Stack</th>
-                    <th scope="col">Resources</th>
-                </tr>
-            </thead>
-            <tbody>
-            @foreach (var stack in Model.Stacks)
-            {
-                <tr>
-                    <td>@stack.ProjectName</td>
-                    <th scope="row">
-                        <a asp-page="/Stacks/Details"
-                           asp-route-org="@stack.OrgName"
-                           asp-route-project="@stack.ProjectName"
-                           asp-route-stack="@stack.StackName"
-                           asp-route-owner="@Model.Owner">
-                            @stack.StackName
-                        </a>
-                    </th>
-                    <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
-                </tr>
-            }
-            </tbody>
-        </table>
+        <div class="table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Project</th>
+                        <th scope="col">Stack</th>
+                        <th scope="col">Resources</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var stack in Model.Stacks)
+                {
+                    <tr>
+                        <td>@stack.ProjectName</td>
+                        <th scope="row">
+                            <a asp-page="/Stacks/Details"
+                               asp-route-owner="@stack.OrgName"
+                               asp-route-project="@stack.ProjectName"
+                               asp-route-stack="@stack.StackName">
+                                @stack.StackName
+                            </a>
+                        </th>
+                        <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
     }
 </section>

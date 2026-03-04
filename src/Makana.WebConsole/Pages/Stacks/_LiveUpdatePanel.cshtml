@@ -1,0 +1,163 @@
+@using Makana.WebConsole.Models
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+<article id="live-update-panel" class="card">
+    <header>
+        <h2>Updates</h2>
+        <p>
+            Status:
+            <strong>@Model.StatusText</strong>
+            @if (!string.IsNullOrWhiteSpace(Model.UpdateId))
+            {
+                <span> · Update <code>@Model.UpdateId</code></span>
+            }
+        </p>
+    </header>
+
+    <ot-tabs>
+        <div role="tablist" class="hstack">
+            <button type="button" role="tab" aria-selected="true">Changes</button>
+            <button type="button" role="tab">Configuration</button>
+            <button type="button" role="tab">Outputs</button>
+            <button type="button" role="tab">Resources</button>
+            <button type="button" role="tab">Metadata</button>
+        </div>
+
+        <div role="tabpanel">
+            @if (Model.TranscriptRows.Count == 0)
+            {
+                <p>No update events recorded yet.</p>
+            }
+            else
+            {
+                <ot-tabs class="stack-update-tabs">
+                    <div role="tablist" class="hstack justify-end">
+                        <button type="button" role="tab" aria-selected="true">Summary</button>
+                        <button type="button" role="tab">Diff</button>
+                        <button type="button" role="tab">Diagnostic</button>
+                    </div>
+
+                    <div role="tabpanel">
+                        <section class="stack-console-block stack-console-block--text" aria-live="polite">
+                            <div class="stack-console-lines" data-console-view="summary">
+                                @foreach (var line in Model.SummaryConsole.Lines)
+                                {
+                                    <div class="@line.CssClass">@foreach (var segment in line.Segments) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+                                }
+                            </div>
+                        </section>
+                    </div>
+
+                    <div role="tabpanel">
+                        <section class="stack-console-block stack-console-block--text" aria-live="polite">
+                            <div class="stack-console-lines" data-console-view="diff">
+                                @foreach (var line in Model.DiffConsole.Lines)
+                                {
+                                    <div class="@line.CssClass">@foreach (var segment in line.Segments) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+                                }
+                            </div>
+                        </section>
+                    </div>
+
+                    <div role="tabpanel">
+                        <section class="stack-console-block stack-console-block--text" aria-live="polite">
+                            <div class="stack-console-lines" data-console-view="diagnostic">
+                                @foreach (var line in Model.DiagnosticConsole.Lines)
+                                {
+                                    <div class="@line.CssClass">@foreach (var segment in line.Segments) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+                                }
+                            </div>
+                        </section>
+                    </div>
+                </ot-tabs>
+            }
+        </div>
+
+        <div role="tabpanel">
+            <div role="alert">
+                <strong>Configuration view is not implemented yet.</strong> Update configuration data is not surfaced in the console yet.
+            </div>
+        </div>
+
+        <div role="tabpanel">
+            <div role="alert">
+                <strong>Outputs view is not implemented yet.</strong> Stack outputs are not surfaced in the console yet.
+            </div>
+        </div>
+
+        <div role="tabpanel">
+            <div role="alert">
+                <strong>Resources view is not implemented yet.</strong> Per-update resource summaries are not surfaced in the console yet.
+            </div>
+        </div>
+
+        <div role="tabpanel">
+            @if (Model.LatestInfo is not null)
+            {
+                <div class="row mt-4">
+                    <div class="col-4">
+                        <label data-field>
+                            Kind
+                            <input type="text" value="@(Model.LatestInfo.Kind ?? "n/a")" readonly />
+                        </label>
+                    </div>
+                    <div class="col-4">
+                        <label data-field>
+                            Version
+                            <input type="text" value="@(Model.LatestInfo.Version?.ToString() ?? "n/a")" readonly />
+                        </label>
+                    </div>
+                    <div class="col-4">
+                        <label data-field>
+                            Message
+                            <input type="text" value="@(Model.LatestInfo.Message ?? "n/a")" readonly />
+                        </label>
+                    </div>
+                </div>
+            }
+
+            @if (Model.RecentUpdates.Count > 0)
+            {
+                <details open class="mt-4">
+                    <summary>Recent updates</summary>
+                    <div class="table mt-4">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Update</th>
+                                    <th scope="col">Kind</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Started</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (var update in Model.RecentUpdates.Take(10))
+                            {
+                                <tr>
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(update.UpdateId))
+                                        {
+                                            <a asp-page="/Stacks/Details"
+                                               asp-route-owner="@Model.Org"
+                                               asp-route-project="@Model.Project"
+                                               asp-route-stack="@Model.Stack"
+                                               asp-route-updateId="@update.UpdateId">@update.UpdateId</a>
+                                        }
+                                        else
+                                        {
+                                            <span>n/a</span>
+                                        }
+                                    </td>
+                                    <td>@(update.Kind ?? "n/a")</td>
+                                    <td>@(update.Result ?? "n/a")</td>
+                                    <td>@(update.StartTime?.ToString() ?? "n/a")</td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            }
+        </div>
+    </ot-tabs>
+</article>

@@ -3,40 +3,33 @@
 @{
     ViewData["Title"] = "Sign In";
     ViewData["HideChrome"] = true;
-    ViewData["BodyClass"] = "auth-page";
     var returnUrl = Request.Query["returnUrl"].ToString();
 }
 
-<section class="login-card" aria-labelledby="signin-heading">
-    <header>
-        <h1 id="signin-heading">Sign In</h1>
-        <p>New to Makana? <a href="#" aria-disabled="true">Create an account</a></p>
-    </header>
+<section aria-labelledby="signin-heading">
+    <article class="card">
+        <header>
+            <h1 id="signin-heading">Sign In</h1>
+            <p class="text-light">Authentication is delegated to the configured OIDC provider.</p>
+        </header>
 
-    <form method="post" asp-page-handler="SignIn">
-        <input type="hidden" name="returnUrl" value="@returnUrl" />
-        <label for="emailOrUsername">Email or Username</label>
-        <input id="emailOrUsername" name="emailOrUsername" type="text" autocomplete="username" disabled />
+        <form method="post" asp-page-handler="SignIn">
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            <div class="vstack">
+                <label data-field>
+                    Email or Username
+                    <input id="emailOrUsername" name="emailOrUsername" type="text" autocomplete="username" disabled />
+                </label>
 
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" disabled />
+                <label data-field>
+                    Password
+                    <input id="password" name="password" type="password" autocomplete="current-password" disabled />
+                </label>
+            </div>
 
-        <p class="login-submit">
-            <button type="submit">Sign in</button>
-        </p>
-
-        <p class="login-links"><a href="#" aria-disabled="true">Forgot Password?</a></p>
-    </form>
-
-    <p class="provider-separator"><strong>OR</strong></p>
-
-    <form method="post" asp-page-handler="SignIn">
-        <input type="hidden" name="returnUrl" value="@returnUrl" />
-        <nav class="provider-grid" aria-label="Single sign-on providers">
-            <button type="submit" class="provider-github">GitHub</button>
-            <button type="submit" class="provider-gitlab">GitLab</button>
-            <button type="submit" class="provider-atlassian">Atlassian</button>
-            <button type="submit" class="provider-sso">SSO</button>
-        </nav>
-    </form>
+            <footer class="hstack justify-end mt-4">
+                <button type="submit">Continue to sign in</button>
+            </footer>
+        </form>
+    </article>
 </section>

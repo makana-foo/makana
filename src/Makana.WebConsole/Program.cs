@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Makana.WebConsole.Endpoints;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Makana.WebConsole.Services;
+using System.Globalization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,7 @@ builder.Services.AddHttpClient<PulumiCliLoginService>((sp, client) =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<PulumiApiAuthHeaderHandler>();
 builder.Services.AddScoped<ConsoleContextService>();
+builder.Services.AddSingleton<StackUpdateTranscriptMapper>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -29,6 +32,27 @@ builder.Services
     .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
     {
         options.LoginPath = "/Login";
+        options.Events.OnValidatePrincipal = async context =>
+        {
+            var expiresAt = context.Properties?.GetTokenValue("expires_at");
+            if (string.IsNullOrWhiteSpace(expiresAt))
+            {
+                return;
+            }
+
+            if (!DateTimeOffset.TryParse(expiresAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var expiresUtc))
+            {
+                return;
+            }
+
+            if (expiresUtc > DateTimeOffset.UtcNow.AddMinutes(1))
+            {
+                return;
+            }
+
+            context.RejectPrincipal();
+            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        };
     })
     .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
     {
@@ -64,6 +88,17 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AuthorizeFolder("/");
     options.Conventions.AllowAnonymousToPage("/Login");
     options.Conventions.AllowAnonymousToPage("/Error");
+
+    // Owner-scoped console URLs: /{owner}/...
+    options.Conventions.AddPageRoute("/Index", "/{owner}");
+    options.Conventions.AddPageRoute("/Stacks/Index", "/{owner}/stacks");
+    options.Conventions.AddPageRoute("/Stacks/Details", "/{owner}/stacks/{project}/{stack}");
+    options.Conventions.AddPageRoute("/Resources/Index", "/{owner}/resources");
+    options.Conventions.AddPageRoute("/Settings/Index", "/{owner}/settings");
+    options.Conventions.AddPageRoute("/Environments/Index", "/{owner}/environments");
+    options.Conventions.AddPageRoute("/Deployments/Index", "/{owner}/deployments");
+    options.Conventions.AddPageRoute("/AiTasks/Index", "/{owner}/ai-tasks");
+    options.Conventions.AddPageRoute("/Platform/Index", "/{owner}/platform");
 });
 
 var app = builder.Build();

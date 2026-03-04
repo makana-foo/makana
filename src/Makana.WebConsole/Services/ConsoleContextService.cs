@@ -1,8 +1,9 @@
 using Makana.WebConsole.Models;
+using Microsoft.AspNetCore.Routing;
 
 namespace Makana.WebConsole.Services;
 
-public sealed class ConsoleContextService(PulumiApiClient apiClient, ILogger<ConsoleContextService> logger)
+public sealed class ConsoleContextService(PulumiApiClient apiClient)
 {
     private const string ContextItemKey = "Makana.WebConsole.NavigationContext";
 
@@ -14,28 +15,19 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient, ILogger<Con
             return cachedContext;
         }
 
-        ConsoleNavigationContext context;
-        try
-        {
-            var user = await apiClient.GetUserAsync(cancellationToken);
-            var stacks = await apiClient.GetUserStacksAsync(cancellationToken);
+        var user = await apiClient.GetUserAsync(cancellationToken);
+        var stacks = await apiClient.GetUserStacksAsync(cancellationToken);
 
-            var personalOwner = ResolvePersonalOwner(user);
-            var ownerOptions = BuildOwnerOptions(user, stacks, personalOwner);
-            var selectedOwner = ResolveSelectedOwner(httpContext, ownerOptions, personalOwner);
-            var selectedStacks = stacks
-                .Where(stack => string.Equals(stack.OrgName, selectedOwner, StringComparison.Ordinal))
-                .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
-                .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
-                .ToArray();
+        var personalOwner = ResolvePersonalOwner(user);
+        var ownerOptions = BuildOwnerOptions(user, stacks, personalOwner);
+        var selectedOwner = ResolveSelectedOwner(httpContext, ownerOptions, personalOwner);
+        var selectedStacks = stacks
+            .Where(stack => string.Equals(stack.OrgName, selectedOwner, StringComparison.Ordinal))
+            .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
+            .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
+            .ToArray();
 
-            context = new ConsoleNavigationContext(user, selectedOwner, ownerOptions, stacks, selectedStacks);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to load console navigation context");
-            context = ConsoleNavigationContext.Empty;
-        }
+        var context = new ConsoleNavigationContext(user, selectedOwner, ownerOptions, stacks, selectedStacks);
 
         httpContext.Items[ContextItemKey] = context;
         return context;
@@ -109,7 +101,7 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient, ILogger<Con
 
     private static string ResolveSelectedOwner(HttpContext httpContext, IReadOnlyList<ConsoleOwnerOption> ownerOptions, string personalOwner)
     {
-        var requestedOwner = httpContext.Request.Query["owner"].ToString();
+        var requestedOwner = httpContext.GetRouteValue("owner")?.ToString();
         if (!string.IsNullOrWhiteSpace(requestedOwner)
             && ownerOptions.Any(option => string.Equals(option.Value, requestedOwner, StringComparison.Ordinal)))
         {

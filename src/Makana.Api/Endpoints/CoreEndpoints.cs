@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Claims;
 using System.Text.Json;
 using Makana.Api.Contracts;
@@ -10,6 +11,8 @@ namespace Makana.Api.Endpoints;
 
 internal static class CoreEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapCoreEndpoints(
         this IEndpointRouteBuilder app,
         BackendStore store,
@@ -52,12 +55,7 @@ internal static class CoreEndpoints
             var stacks = new List<StackSummary>(rows.Count);
             foreach (var row in rows)
             {
-                var isPersonal = string.Equals(row.NamespaceId, userId, StringComparison.Ordinal);
-                var displayOrg = isPersonal
-                    ? userLogin
-                    : NamespaceRoutingHelpers.IsLoginCollision(row.OrgName, userLogin)
-                        ? NamespaceRoutingHelpers.GetCollisionOrgAlias(row.OrgName, row.NamespaceId)
-                        : row.OrgName;
+                var displayOrg = row.OrgName;
                 var tags = row.TagsJson is null
                     ? null
                     : JsonSerializer.Deserialize(row.TagsJson, EndpointHelpersJsonContext.Default.DictionaryStringString);
@@ -234,12 +232,9 @@ internal static class CoreEndpoints
         var orgInfos = orgs
             .Select(org =>
             {
-                var displayLogin = NamespaceRoutingHelpers.IsLoginCollision(org.Login, user.Value.Login)
-                    ? NamespaceRoutingHelpers.GetCollisionOrgAlias(org.Login, org.Id)
-                    : org.Login;
                 return new ServiceUserInfo(
-                    Name: displayLogin,
-                    GitHubLogin: displayLogin,
+                    Name: org.Login,
+                    GitHubLogin: org.Login,
                     AvatarUrl: string.Empty,
                     Email: null);
             })
@@ -276,30 +271,16 @@ internal static class CoreEndpoints
                 return Array.Empty<string>();
             }
 
-            var tokenOrgAlias = NamespaceRoutingHelpers.IsLoginCollision(tokenOrgLogin, userLogin)
-                ? NamespaceRoutingHelpers.GetCollisionOrgAlias(tokenOrgLogin, tokenOrgId)
-                : null;
-
             if (!string.IsNullOrWhiteSpace(organizationFilter))
             {
-                if (string.Equals(organizationFilter, tokenOrgLogin, StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrWhiteSpace(tokenOrgAlias) &&
-                     string.Equals(organizationFilter, tokenOrgAlias, StringComparison.OrdinalIgnoreCase)))
+                if (string.Equals(organizationFilter, tokenOrgLogin, StringComparison.OrdinalIgnoreCase))
                 {
                     return new[] { tokenOrgId };
                 }
-
-                if (string.Equals(organizationFilter, userLogin, StringComparison.OrdinalIgnoreCase))
-                {
-                    return new[] { userId };
-                }
-
                 return Array.Empty<string>();
             }
 
-            return string.Equals(tokenOrgLogin, userLogin, StringComparison.OrdinalIgnoreCase)
-                ? new[] { userId, tokenOrgId }
-                : new[] { tokenOrgId };
+            return new[] { tokenOrgId };
         }
 
         var namespaceIds = new HashSet<string>(StringComparer.Ordinal) { userId };
@@ -323,15 +304,6 @@ internal static class CoreEndpoints
         foreach (var org in orgs)
         {
             if (string.Equals(org.Login, organizationFilter, StringComparison.OrdinalIgnoreCase))
-            {
-                return new[] { org.Id };
-            }
-
-            if (NamespaceRoutingHelpers.IsLoginCollision(org.Login, userLogin) &&
-                string.Equals(
-                    NamespaceRoutingHelpers.GetCollisionOrgAlias(org.Login, org.Id),
-                    organizationFilter,
-                    StringComparison.OrdinalIgnoreCase))
             {
                 return new[] { org.Id };
             }

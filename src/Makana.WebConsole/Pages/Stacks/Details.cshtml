@@ -1,65 +1,129 @@
-@page "/stacks/{org}/{project}/{stack}"
+@page
 @model Makana.WebConsole.Pages.Stacks.DetailsModel
+@using System.Text.Json
 @{
     ViewData["Title"] = $"Stack {Model.Stack}";
     ViewData["NavSection"] = "Stacks";
 }
 
 <section>
+    <nav aria-label="Breadcrumb">
+        <ol class="unstyled hstack">
+            <li><a class="unstyled" asp-page="/Stacks/Index" asp-route-owner="@Model.Owner">Stacks</a></li>
+            <li aria-hidden="true">/</li>
+            <li><a class="unstyled" asp-page="/Projects/Index" asp-route-owner="@Model.Owner" asp-route-project="@Model.Project">@Model.Project</a></li>
+            <li aria-hidden="true">/</li>
+            <li><a class="unstyled" aria-current="page"><strong>@Model.Stack</strong></a></li>
+        </ol>
+    </nav>
+
     <header>
         <h1>Stack: @Model.Stack</h1>
-        <p><a asp-page="/Stacks/Index" asp-route-owner="@Model.Owner">Back to stacks</a></p>
+        <p class="text-light">Owner: <strong>@Model.Owner</strong></p>
     </header>
 
     @if (Model.Details is null)
     {
-        <article>
-            <header>Unavailable</header>
-            <p>Unable to load stack details.</p>
+        <article class="card">
+            <div role="alert" data-variant="error">
+                <strong>Unavailable.</strong> Unable to load stack details.
+            </div>
         </article>
     }
     else
     {
-        <article>
-            <header>Metadata</header>
-            <dl class="project-facts">
-                <div>
-                    <dt>Version</dt>
-                    <dd>@Model.Details.Version</dd>
+        <section id="stack-live-panel-container"
+                 hx-get="@Url.Page("/Stacks/Details", "LiveUpdatePanel", new { owner = Model.Owner, project = Model.Project, stack = Model.Stack, updateId = Model.LivePanel.UpdateId })"
+                 hx-trigger="stack-update-changed from:body@(Model.EnableLiveRefresh ? ", every 10s" : "")"
+                 hx-target="#stack-live-panel-container"
+                 hx-swap="outerHTML">
+            <partial name="_LiveUpdatePanel" model="Model.LivePanel" />
+        </section>
+
+        <article class="card">
+            <header>
+                <h3>Stack metadata</h3>
+            </header>
+            <div class="row">
+                <div class="col-6">
+                    <label data-field>
+                        Version
+                        <input type="text" value="@Model.Details.Version" readonly />
+                    </label>
                 </div>
-                <div>
-                    <dt>Active update</dt>
-                    <dd>@(string.IsNullOrWhiteSpace(Model.Details.ActiveUpdate) ? "None" : Model.Details.ActiveUpdate)</dd>
+                <div class="col-6">
+                    <label data-field>
+                        Active update
+                        <input type="text" value="@(string.IsNullOrWhiteSpace(Model.Details.ActiveUpdate) ? "None" : Model.Details.ActiveUpdate)" readonly />
+                    </label>
                 </div>
-            </dl>
+            </div>
         </article>
 
-        <article>
-            <header>Tags</header>
+        <article class="card">
+            <header>
+                <h3>Tags</h3>
+            </header>
             @if (Model.Details.Tags is null || Model.Details.Tags.Count == 0)
             {
                 <p>No tags set on this stack.</p>
             }
             else
             {
-                <table>
-                    <thead>
-                        <tr>
-                            <th scope="col">Key</th>
-                            <th scope="col">Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    @foreach (var entry in Model.Details.Tags.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
-                    {
-                        <tr>
-                            <th scope="row"><code>@entry.Key</code></th>
-                            <td><code>@entry.Value</code></td>
-                        </tr>
-                    }
-                    </tbody>
-                </table>
+                <div class="table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Key</th>
+                                <th scope="col">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var entry in Model.Details.Tags.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+                        {
+                            <tr>
+                                <th scope="row"><code>@entry.Key</code></th>
+                                <td><code>@entry.Value</code></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
             }
         </article>
     }
 </section>
+
+@section Scripts {
+    <script src="https://unpkg.com/htmx.org@@2.0.4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    @if (Model.EnableLiveRefresh && !string.IsNullOrWhiteSpace(Model.LivePanel.UpdateId))
+    {
+        <script>
+            (() => {
+                const hubUrl = @Html.Raw(JsonSerializer.Serialize(Model.StackUpdateHubUrl));
+                const owner = @Html.Raw(JsonSerializer.Serialize(Model.Owner));
+                const project = @Html.Raw(JsonSerializer.Serialize(Model.Project));
+                const stack = @Html.Raw(JsonSerializer.Serialize(Model.Stack));
+                const updateId = @Html.Raw(JsonSerializer.Serialize(Model.LivePanel.UpdateId));
+
+                if (!hubUrl || !updateId || !window.signalR) {
+                    return;
+                }
+
+                const connection = new signalR.HubConnectionBuilder()
+                    .withUrl(hubUrl)
+                    .withAutomaticReconnect()
+                    .build();
+
+                connection.on("stack-update-changed", () => {
+                    document.body.dispatchEvent(new Event("stack-update-changed"));
+                });
+
+                connection.start()
+                    .then(() => connection.invoke("JoinStackUpdate", owner, project, stack, updateId))
+                    .catch(() => { });
+            })();
+        </script>
+    }
+}

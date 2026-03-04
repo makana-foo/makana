@@ -2,8 +2,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Makana.Api.Endpoints;
 using Makana.Api.Middleware;
+using Makana.Api.Realtime;
 using Makana.Api.Security;
 using Makana.Api.Storage;
+using Makana.Api.Updates;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -39,9 +41,12 @@ if (!string.IsNullOrWhiteSpace(dbDirectory))
 
 builder.Services.AddSingleton(new Database($"Data Source={dbPath}"));
 builder.Services.AddSingleton<BackendStore>();
+builder.Services.AddSingleton<IUpdateCheckpointJournalingProvider, ConformantJournalingUpdateProvider>();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OidcUserInfoClient>();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IStackUpdateNotifier, SignalRStackUpdateNotifier>();
 
 var oidcProvider = builder.Configuration["OIDC_PROVIDER"] ?? "oidc";
 var normalizedOidcProvider = NormalizeProviderKey(oidcProvider);
@@ -143,13 +148,38 @@ app.UseWhen(
         branch.UseAuthorization();
     });
 
+// Endpoint registration uses Minimal API Delegate overloads that are annotated as
+// requiring dynamic code/unreferenced code. Scope suppression narrowly to startup.
+#pragma warning disable IL2026, IL3050
 app.MapCoreEndpoints(store, oidcSettings, app.Services.GetRequiredService<OidcUserInfoClient>());
 app.MapStackEndpoints(store, secretKey);
-app.MapUpdateEndpoints(store);
+app.MapUpdateEndpoints(
+    store,
+    app.Services.GetRequiredService<IStackUpdateNotifier>(),
+    app.Services.GetRequiredService<IUpdateCheckpointJournalingProvider>());
 app.MapDeploymentEndpoints(store, secretKey);
 app.MapRegistryEndpoints(store);
 app.MapUploadEndpoints(store);
 app.MapConsoleEndpoints();
+app.MapAiTasksEndpoints();
+app.MapAuditLogsEndpoints();
+app.MapDataExportEndpoints();
+app.MapDeploymentAutomationEndpoints();
+app.MapDeploymentRunnersEndpoints();
+app.MapEnvironmentsEndpoints();
+app.MapInsightsAccountsEndpoints();
+app.MapOidcIssuersEndpoints();
+app.MapOrganizationsEndpoints();
+app.MapPersonalAccessTokensEndpoints();
+app.MapPolicyEndpoints();
+app.MapPolicyResultsEndpoints();
+app.MapRegistryAdminEndpoints();
+app.MapResourceSearchEndpoints();
+app.MapServicesEndpoints();
+app.MapStackAdvancedEndpoints();
+app.MapWebhooksEndpoints();
+app.MapHub<StackUpdateHub>("/hubs/stack-updates");
+#pragma warning restore IL2026, IL3050
 
 app.Run();
 

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Makana.Api.Contracts;
@@ -8,6 +9,8 @@ namespace Makana.Api.Endpoints;
 
 internal static class StackEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapStackEndpoints(this IEndpointRouteBuilder app, BackendStore store, byte[] secretKey)
     {
         app.MapGet("/api/stacks/{org}", async (HttpContext context, HttpRequest request, string org) =>
@@ -322,60 +325,15 @@ internal static class StackEndpoints
             return (null, Results.Unauthorized());
         }
 
-        var user = await store.GetUserByIdAsync(userId);
         var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
-        if (!string.IsNullOrWhiteSpace(tokenOrgId))
+        var namespaceId = await NamespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
+            store,
+            userId,
+            org,
+            tokenOrgId);
+        if (!string.IsNullOrWhiteSpace(namespaceId))
         {
-            var tokenOrgLogin = await store.GetOrgLoginByIdAsync(tokenOrgId);
-            var tokenOrgAlias = user is not null &&
-                                NamespaceRoutingHelpers.IsLoginCollision(tokenOrgLogin ?? string.Empty, user.Value.Login)
-                ? NamespaceRoutingHelpers.GetCollisionOrgAlias(tokenOrgLogin!, tokenOrgId)
-                : null;
-
-            if (!string.IsNullOrWhiteSpace(tokenOrgAlias) &&
-                string.Equals(tokenOrgAlias, org, StringComparison.OrdinalIgnoreCase))
-            {
-                return (tokenOrgId, null);
-            }
-
-            if (string.IsNullOrWhiteSpace(tokenOrgLogin))
-            {
-                return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
-            }
-
-            if (user is not null &&
-                string.Equals(org, user.Value.Login, StringComparison.OrdinalIgnoreCase))
-            {
-                return (userId, null);
-            }
-
-            if (string.Equals(tokenOrgLogin, org, StringComparison.OrdinalIgnoreCase))
-            {
-                return (tokenOrgId, null);
-            }
-
-            return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
-        }
-
-        if (user is not null && string.Equals(user.Value.Login, org, StringComparison.OrdinalIgnoreCase))
-        {
-            return (userId, null);
-        }
-
-        if (user is null)
-        {
-            return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
-        }
-
-        var memberOrgId = await NamespaceRoutingHelpers.ResolveMemberOrgIdFromRouteAsync(store, userId, user.Value.Login, org);
-        if (!string.IsNullOrWhiteSpace(memberOrgId))
-        {
-            return (memberOrgId, null);
-        }
-
-        if (await store.OrgExistsByLoginAsync(org))
-        {
-            return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
+            return (namespaceId, null);
         }
 
         return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));

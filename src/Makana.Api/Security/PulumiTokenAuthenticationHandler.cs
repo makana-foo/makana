@@ -63,7 +63,7 @@ internal sealed class PulumiTokenAuthenticationHandler(
             var apiTicket = new AuthenticationTicket(principal, Scheme.Name);
             return AuthenticateResult.Success(apiTicket);
         }
-        
+
         if (!string.Equals(kind, "update-token", StringComparison.OrdinalIgnoreCase))
         {
             return AuthenticateResult.Fail("Unsupported authorization scheme.");

@@ -8,21 +8,30 @@
 <section>
     <header>
         <h1>Dashboard</h1>
-        <p>Overview for <strong>@Model.Owner</strong>.</p>
+        <p class="text-light">Overview for <strong>@Model.Owner</strong>.</p>
     </header>
 
-    <div class="dashboard-stats" role="list" aria-label="Owner summary">
-        <article role="listitem">
-            <header>Projects</header>
-            <p><strong>@Model.ProjectCount</strong></p>
+    <div class="row" role="list" aria-label="Owner summary">
+        <article class="card col-4" role="listitem">
+            <header class="hstack justify-between items-center">
+                <h3>Projects</h3>
+                <span class="badge">@Model.ProjectCount</span>
+            </header>
+            <p class="text-light">Distinct Pulumi projects for this owner.</p>
         </article>
-        <article role="listitem">
-            <header>Stacks</header>
-            <p><strong>@Model.Context.SelectedOwnerStacks.Count</strong></p>
+        <article class="card col-4" role="listitem">
+            <header class="hstack justify-between items-center">
+                <h3>Stacks</h3>
+                <span class="badge">@Model.Context.SelectedOwnerStacks.Count</span>
+            </header>
+            <p class="text-light">Stacks currently visible in this workspace.</p>
         </article>
-        <article role="listitem">
-            <header>Resources</header>
-            <p><strong>@Model.ResourceCount</strong></p>
+        <article class="card col-4" role="listitem">
+            <header class="hstack justify-between items-center">
+                <h3>Resources</h3>
+                <span class="badge">@Model.ResourceCount</span>
+            </header>
+            <p class="text-light">Tracked resources across the selected owner.</p>
         </article>
     </div>
 </section>
@@ -31,39 +40,42 @@
     <h2>Recent stacks</h2>
     @if (Model.RecentStacks.Count == 0)
     {
-        <p>No stacks yet for this owner.</p>
+        <article class="card">
+            <p>No stacks yet for this owner.</p>
+        </article>
     }
     else
     {
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col">Project</th>
-                    <th scope="col">Stack</th>
-                    <th scope="col">Last update</th>
-                    <th scope="col">Resources</th>
-                </tr>
-            </thead>
-            <tbody>
-            @foreach (var stack in Model.RecentStacks)
-            {
-                <tr>
-                    <td>@stack.ProjectName</td>
-                    <th scope="row">
-                        <a asp-page="/Stacks/Details"
-                           asp-route-org="@stack.OrgName"
-                           asp-route-project="@stack.ProjectName"
-                           asp-route-stack="@stack.StackName"
-                           asp-route-owner="@Model.Owner">
-                            @stack.StackName
-                        </a>
-                    </th>
-                    <td>@FormatTime(stack.LastUpdate)</td>
-                    <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
-                </tr>
-            }
-            </tbody>
-        </table>
+        <div class="table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Project</th>
+                        <th scope="col">Stack</th>
+                        <th scope="col">Last update</th>
+                        <th scope="col">Resources</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var stack in Model.RecentStacks)
+                {
+                    <tr>
+                        <td>@stack.ProjectName</td>
+                        <th scope="row">
+                            <a asp-page="/Stacks/Details"
+                               asp-route-owner="@stack.OrgName"
+                               asp-route-project="@stack.ProjectName"
+                               asp-route-stack="@stack.StackName">
+                                @stack.StackName
+                            </a>
+                        </th>
+                        <td>@FormatTime(stack.LastUpdate)</td>
+                        <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
     }
 </section>
 

@@ -176,7 +176,8 @@ public record UpdateInfo(
     [property: JsonPropertyName("version")] int? Version = null,
     [property: JsonPropertyName("deployment")] JsonElement? Deployment = null,
     [property: JsonPropertyName("resourceChanges")] Dictionary<string, int>? ResourceChanges = null,
-    [property: JsonPropertyName("resourceCount")] int? ResourceCount = null
+    [property: JsonPropertyName("resourceCount")] int? ResourceCount = null,
+    [property: JsonPropertyName("updateID")] string? UpdateId = null
 );
 
 public record GetHistoryResponse(

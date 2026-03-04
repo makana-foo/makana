@@ -64,6 +64,7 @@ public sealed class Database(string connectionString)
             @"CREATE TABLE IF NOT EXISTS updates (
                 id TEXT PRIMARY KEY,
                 stack_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
                 kind TEXT NOT NULL,
                 status TEXT NOT NULL,
                 version INTEGER NOT NULL,
@@ -139,9 +140,102 @@ public sealed class Database(string connectionString)
             await cmd.ExecuteNonQueryAsync();
         }
 
+        await MigrateUpdatesSchemaAsync(connection);
+        await MigrateUpdateCheckpointSchemaAsync(connection);
         // Cleanup migration for previous personal-namespace modeling that incorrectly
         // created synthetic org rows. Personal namespaces should map to users, not orgs.
         await MigrateLegacyPersonalNamespaceRowsAsync(connection);
+        await MigrateOwnerLoginCollisionsAsync(connection);
+        await MigrateOwnerLoginConstraintsAsync(connection);
+    }
+
+    private static async Task MigrateUpdatesSchemaAsync(SqliteConnection connection)
+    {
+        var hasSequence = false;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(updates);";
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                if (string.Equals(reader.GetString(1), "sequence", StringComparison.Ordinal))
+                {
+                    hasSequence = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hasSequence)
+        {
+            using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE updates ADD COLUMN sequence INTEGER;";
+            await alter.ExecuteNonQueryAsync();
+        }
+
+        using (var backfill = connection.CreateCommand())
+        {
+            backfill.CommandText = @"
+                UPDATE updates
+                SET sequence = (
+                    SELECT COUNT(*)
+                    FROM updates u2
+                    WHERE u2.stack_id = updates.stack_id
+                      AND (
+                          u2.created_at < updates.created_at OR
+                          (u2.created_at = updates.created_at AND u2.id <= updates.id)
+                      )
+                )
+                WHERE sequence IS NULL;";
+            await backfill.ExecuteNonQueryAsync();
+        }
+
+        var indexes = new[]
+        {
+            "CREATE INDEX IF NOT EXISTS idx_updates_stack_status ON updates(stack_id, status);",
+            "CREATE INDEX IF NOT EXISTS idx_updates_stack_version ON updates(stack_id, version);",
+            "CREATE INDEX IF NOT EXISTS idx_updates_stack_sequence ON updates(stack_id, sequence);"
+        };
+
+        foreach (var index in indexes)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = index;
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task MigrateUpdateCheckpointSchemaAsync(SqliteConnection connection)
+    {
+        var hasRequestSignature = false;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(update_checkpoints);";
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                if (string.Equals(reader.GetString(1), "request_signature", StringComparison.Ordinal))
+                {
+                    hasRequestSignature = true;
+                    break;
+                }
+            }
+        }
+
+        if (!hasRequestSignature)
+        {
+            using var alter = connection.CreateCommand();
+            alter.CommandText = "ALTER TABLE update_checkpoints ADD COLUMN request_signature TEXT;";
+            await alter.ExecuteNonQueryAsync();
+        }
+
+        using (var index = connection.CreateCommand())
+        {
+            index.CommandText = @"
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_update_checkpoints_update_sequence
+                ON update_checkpoints(update_id, sequence);";
+            await index.ExecuteNonQueryAsync();
+        }
     }
 
     private static async Task MigrateLegacyPersonalNamespaceRowsAsync(SqliteConnection connection)
@@ -194,11 +288,135 @@ public sealed class Database(string connectionString)
               AND NOT EXISTS (SELECT 1 FROM stacks s WHERE s.org_id = orgs.id);";
         await cmd.ExecuteNonQueryAsync();
     }
+
+    private static async Task MigrateOwnerLoginCollisionsAsync(SqliteConnection connection)
+    {
+        var collisions = new List<(string OrgId, string Login)>();
+
+        using (var find = connection.CreateCommand())
+        {
+            find.CommandText = @"
+                SELECT o.id, o.login
+                FROM orgs o
+                JOIN users u ON o.login = u.github_login COLLATE NOCASE;";
+            using var reader = await find.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                collisions.Add((reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
+        foreach (var collision in collisions)
+        {
+            using var hasRefs = connection.CreateCommand();
+            hasRefs.CommandText = @"
+                SELECT 1
+                FROM (
+                    SELECT 1 FROM org_memberships WHERE org_id = @orgId
+                    UNION ALL
+                    SELECT 1 FROM projects WHERE org_id = @orgId
+                    UNION ALL
+                    SELECT 1 FROM stacks WHERE org_id = @orgId
+                    UNION ALL
+                    SELECT 1 FROM api_tokens WHERE org_id = @orgId
+                )
+                LIMIT 1;";
+            hasRefs.Parameters.AddWithValue("@orgId", collision.OrgId);
+            var hasData = await hasRefs.ExecuteScalarAsync();
+
+            if (hasData is not null)
+            {
+                throw new InvalidOperationException(
+                    $"Owner login collision detected for '{collision.Login}'. " +
+                    "User and organization names must be globally unique.");
+            }
+
+            using var delete = connection.CreateCommand();
+            delete.CommandText = "DELETE FROM orgs WHERE id = @orgId;";
+            delete.Parameters.AddWithValue("@orgId", collision.OrgId);
+            await delete.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task MigrateOwnerLoginConstraintsAsync(SqliteConnection connection)
+    {
+        var commands = new[]
+        {
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_github_login_nocase ON users(github_login COLLATE NOCASE);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_login_nocase ON orgs(login COLLATE NOCASE);",
+            @"
+                CREATE TRIGGER IF NOT EXISTS trg_users_owner_login_insert
+                BEFORE INSERT ON users
+                FOR EACH ROW
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM orgs o
+                    WHERE o.login = NEW.github_login COLLATE NOCASE
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'owner login already exists');
+                END;",
+            @"
+                CREATE TRIGGER IF NOT EXISTS trg_users_owner_login_update
+                BEFORE UPDATE OF github_login ON users
+                FOR EACH ROW
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM orgs o
+                    WHERE o.login = NEW.github_login COLLATE NOCASE
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'owner login already exists');
+                END;",
+            @"
+                CREATE TRIGGER IF NOT EXISTS trg_orgs_owner_login_insert
+                BEFORE INSERT ON orgs
+                FOR EACH ROW
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM users u
+                    WHERE u.github_login = NEW.login COLLATE NOCASE
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'owner login already exists');
+                END;",
+            @"
+                CREATE TRIGGER IF NOT EXISTS trg_orgs_owner_login_update
+                BEFORE UPDATE OF login ON orgs
+                FOR EACH ROW
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM users u
+                    WHERE u.github_login = NEW.login COLLATE NOCASE
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'owner login already exists');
+                END;"
+        };
+
+        foreach (var sql in commands)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
 }
 
 public sealed class BackendStore
 {
     private readonly Database _database;
+
+    public enum StartUpdateStatus
+    {
+        Started,
+        NotFound,
+        Conflict,
+        InvalidState
+    }
+
+    public readonly record struct StartUpdateResult(StartUpdateStatus Status, int Version, string? Token);
+    public readonly record struct StoredUpdateCheckpoint(int Sequence, int Version, string DeploymentJson, string? RequestSignature);
 
     public BackendStore(Database database)
     {
@@ -725,7 +943,7 @@ public sealed class BackendStore
             SELECT id
             FROM updates
             WHERE stack_id = @stackId AND status = 'in-progress'
-            ORDER BY created_at DESC
+            ORDER BY COALESCE(sequence, 0) DESC, created_at DESC
             LIMIT 1;";
         cmd.Parameters.AddWithValue("@stackId", stackId);
         return (string?)await cmd.ExecuteScalarAsync();
@@ -905,6 +1123,22 @@ public sealed class BackendStore
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
+            DELETE FROM update_checkpoints
+            WHERE update_id IN (
+                SELECT u.id
+                FROM updates u
+                JOIN stacks s ON s.id = u.stack_id
+                JOIN projects p ON p.id = s.project_id
+                LEFT JOIN orgs o ON o.id = s.org_id
+                LEFT JOIN users us ON us.id = s.org_id
+                WHERE COALESCE(o.login, us.github_login) = @org AND p.name = @project AND s.name = @stack
+            );";
+        cmd.Parameters.AddWithValue("@org", org);
+        cmd.Parameters.AddWithValue("@project", project);
+        cmd.Parameters.AddWithValue("@stack", stack);
+        await cmd.ExecuteNonQueryAsync();
+
+        cmd.CommandText = @"
             DELETE FROM update_events
             WHERE update_id IN (
                 SELECT u.id
@@ -915,6 +1149,7 @@ public sealed class BackendStore
                 LEFT JOIN users us ON us.id = s.org_id
                 WHERE COALESCE(o.login, us.github_login) = @org AND p.name = @project AND s.name = @stack
             );";
+        cmd.Parameters.Clear();
         cmd.Parameters.AddWithValue("@org", org);
         cmd.Parameters.AddWithValue("@project", project);
         cmd.Parameters.AddWithValue("@stack", stack);
@@ -988,43 +1223,131 @@ public sealed class BackendStore
 
     public async Task<string> CreateUpdateAsync(string stackId, string kind, string programRequestJson)
     {
-        var updateId = Guid.NewGuid().ToString("N");
+        var updateId = Guid.NewGuid().ToString("D");
         using var connection = _database.OpenConnection();
+        using var tx = connection.BeginTransaction();
         using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT COALESCE(MAX(sequence), 0) + 1 FROM updates WHERE stack_id = @stackId;";
+        cmd.Parameters.AddWithValue("@stackId", stackId);
+        var sequence = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+
         cmd.CommandText = @"
-            INSERT INTO updates (id, stack_id, kind, status, version, program_request_json, created_at)
-            VALUES (@id, @stackId, @kind, @status, @version, @program, @created);";
+            INSERT INTO updates (id, stack_id, sequence, kind, status, version, program_request_json, created_at)
+            VALUES (@id, @stackId, @sequence, @kind, @status, @version, @program, @created);";
+        cmd.Parameters.Clear();
         cmd.Parameters.AddWithValue("@id", updateId);
         cmd.Parameters.AddWithValue("@stackId", stackId);
+        cmd.Parameters.AddWithValue("@sequence", sequence);
         cmd.Parameters.AddWithValue("@kind", kind);
         cmd.Parameters.AddWithValue("@status", "not-started");
         cmd.Parameters.AddWithValue("@version", 0);
         cmd.Parameters.AddWithValue("@program", programRequestJson);
         cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
+        await tx.CommitAsync();
         return updateId;
+    }
+
+    private static bool IsPreviewKind(string kind) =>
+        string.Equals(kind, "preview", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<int> GetCurrentStackVersionAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string stackId)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = @"
+            SELECT COALESCE(MAX(version), 0)
+            FROM (
+                SELECT version
+                FROM updates
+                WHERE stack_id = @stackId
+                  AND kind <> 'preview'
+                  AND version > 0
+                UNION ALL
+                SELECT version
+                FROM deployments
+                WHERE stack_id = @stackId
+            );";
+        cmd.Parameters.AddWithValue("@stackId", stackId);
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    public async Task<int> GetCurrentStackVersionAsync(string stackId)
+    {
+        using var connection = _database.OpenConnection();
+        return await GetCurrentStackVersionAsync(connection, transaction: null, stackId);
     }
 
     public async Task<int> GetNextStackVersionAsync(string stackId)
     {
-        using var connection = _database.OpenConnection();
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM deployments WHERE stack_id = @stackId;";
-        cmd.Parameters.AddWithValue("@stackId", stackId);
-        var current = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        var current = await GetCurrentStackVersionAsync(stackId);
         return current + 1;
     }
 
-    public async Task<string> StartUpdateAsync(string updateId, int version, string startRequestJson)
+    public async Task<StartUpdateResult> StartUpdateAsync(string updateId, string stackId, string startRequestJson)
     {
         using var connection = _database.OpenConnection();
+        using var tx = connection.BeginTransaction();
         using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"
+            SELECT stack_id, kind, status
+            FROM updates
+            WHERE id = @id
+            LIMIT 1;";
+        cmd.Parameters.AddWithValue("@id", updateId);
+        using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+        {
+            return new StartUpdateResult(StartUpdateStatus.NotFound, 0, null);
+        }
+
+        var updateStackId = reader.GetString(0);
+        var updateKind = reader.GetString(1);
+        var currentStatus = reader.GetString(2);
+        reader.Close();
+        if (!string.Equals(updateStackId, stackId, StringComparison.Ordinal))
+        {
+            return new StartUpdateResult(StartUpdateStatus.NotFound, 0, null);
+        }
+
+        if (!string.Equals(currentStatus, "not-started", StringComparison.Ordinal))
+        {
+            var state = string.Equals(currentStatus, "in-progress", StringComparison.Ordinal)
+                ? StartUpdateStatus.Conflict
+                : StartUpdateStatus.InvalidState;
+            return new StartUpdateResult(state, 0, null);
+        }
+
+        cmd.CommandText = @"
+            SELECT 1
+            FROM updates
+            WHERE stack_id = @stackId
+              AND status = 'in-progress'
+              AND id != @updateId
+            LIMIT 1;";
+        cmd.Parameters.Clear();
+        cmd.Parameters.AddWithValue("@stackId", stackId);
+        cmd.Parameters.AddWithValue("@updateId", updateId);
+        var active = await cmd.ExecuteScalarAsync();
+        if (active is not null)
+        {
+            return new StartUpdateResult(StartUpdateStatus.Conflict, 0, null);
+        }
+
+        var currentVersion = await GetCurrentStackVersionAsync(connection, tx, stackId);
+        var assignedVersion = IsPreviewKind(updateKind) ? currentVersion : currentVersion + 1;
         cmd.CommandText = @"
             UPDATE updates
             SET status = @status, version = @version, start_request_json = @start
             WHERE id = @id;";
+        cmd.Parameters.Clear();
         cmd.Parameters.AddWithValue("@status", "in-progress");
-        cmd.Parameters.AddWithValue("@version", version);
+        cmd.Parameters.AddWithValue("@version", assignedVersion);
         cmd.Parameters.AddWithValue("@start", startRequestJson);
         cmd.Parameters.AddWithValue("@id", updateId);
         await cmd.ExecuteNonQueryAsync();
@@ -1035,10 +1358,11 @@ public sealed class BackendStore
         cmd.Parameters.AddWithValue("@token", token);
         cmd.Parameters.AddWithValue("@updateId", updateId);
         await cmd.ExecuteNonQueryAsync();
-        return token;
+        await tx.CommitAsync();
+        return new StartUpdateResult(StartUpdateStatus.Started, assignedVersion, token);
     }
 
-    public async Task<bool> HasActiveUpdateAsync(string stackId, string updateId)
+    public async Task<bool> HasActiveUpdateAsync(string stackId, string updateId, CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
@@ -1051,48 +1375,54 @@ public sealed class BackendStore
             LIMIT 1;";
         cmd.Parameters.AddWithValue("@stackId", stackId);
         cmd.Parameters.AddWithValue("@updateId", updateId);
-        var result = await cmd.ExecuteScalarAsync();
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
         return result != null;
     }
 
-    public async Task<bool> IsUpdateInProgressAsync(string updateId)
+    public async Task<bool> IsUpdateInProgressAsync(string updateId, CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT 1 FROM updates WHERE id = @id AND status = 'in-progress' LIMIT 1;";
         cmd.Parameters.AddWithValue("@id", updateId);
-        var result = await cmd.ExecuteScalarAsync();
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
         return result != null;
     }
 
-    public async Task<bool> ValidateUpdateTokenAsync(string updateId, string token)
+    public async Task<bool> ValidateUpdateTokenAsync(string updateId, string token, CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT 1 FROM update_tokens WHERE token = @token AND update_id = @updateId LIMIT 1;";
         cmd.Parameters.AddWithValue("@token", token);
         cmd.Parameters.AddWithValue("@updateId", updateId);
-        var result = await cmd.ExecuteScalarAsync();
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
         return result != null;
     }
 
-    public async Task SaveCheckpointAsync(string updateId, string deploymentJson, int version)
+    public async Task SaveCheckpointAsync(
+        string updateId,
+        string deploymentJson,
+        int version,
+        CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT stack_id, version FROM updates WHERE id = @id LIMIT 1;";
+        cmd.CommandText = "SELECT stack_id, kind, version FROM updates WHERE id = @id LIMIT 1;";
         cmd.Parameters.AddWithValue("@id", updateId);
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (!await reader.ReadAsync())
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
         {
             return;
         }
 
         var stackId = reader.GetString(0);
-        var updateVersion = reader.GetInt32(1);
+        var updateKind = reader.GetString(1);
+        var updateVersion = reader.GetInt32(2);
         reader.Close();
+        var isPreview = IsPreviewKind(updateKind);
         var deploymentVersion = updateVersion > 0 ? updateVersion : version;
-        if (deploymentVersion <= 0)
+        if (!isPreview && deploymentVersion <= 0)
         {
             return;
         }
@@ -1100,19 +1430,31 @@ public sealed class BackendStore
         cmd.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM update_checkpoints WHERE update_id = @updateId;";
         cmd.Parameters.Clear();
         cmd.Parameters.AddWithValue("@updateId", updateId);
-        var sequence = Convert.ToInt32(await cmd.ExecuteScalarAsync()) + 1;
+        var sequence = Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken)) + 1;
 
         cmd.CommandText = @"
-            INSERT INTO update_checkpoints (id, update_id, sequence, version, deployment_json, created_at)
-            VALUES (@id, @updateId, @sequence, @version, @deployment, @created);";
+            INSERT INTO update_checkpoints (
+                id,
+                update_id,
+                sequence,
+                version,
+                deployment_json,
+                request_signature,
+                created_at)
+            VALUES (@id, @updateId, @sequence, @version, @deployment, @signature, @created);";
         cmd.Parameters.Clear();
         cmd.Parameters.AddWithValue("@id", Guid.NewGuid().ToString("N"));
         cmd.Parameters.AddWithValue("@updateId", updateId);
         cmd.Parameters.AddWithValue("@sequence", sequence);
         cmd.Parameters.AddWithValue("@version", deploymentVersion);
         cmd.Parameters.AddWithValue("@deployment", deploymentJson);
+        cmd.Parameters.AddWithValue("@signature", DBNull.Value);
         cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
-        await cmd.ExecuteNonQueryAsync();
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        if (isPreview)
+        {
+            return;
+        }
 
         cmd.CommandText = @"
             INSERT OR REPLACE INTO deployments (id, stack_id, version, deployment_json, created_at)
@@ -1123,42 +1465,146 @@ public sealed class BackendStore
         cmd.Parameters.AddWithValue("@version", deploymentVersion);
         cmd.Parameters.AddWithValue("@deployment", deploymentJson);
         cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
-        await cmd.ExecuteNonQueryAsync();
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<(int Sequence, int Version, string DeploymentJson)?> GetLatestCheckpointForUpdateAsync(string updateId)
+    public async Task<bool> SaveCheckpointWithSequenceAsync(
+        string updateId,
+        int sequence,
+        string deploymentJson,
+        int version,
+        string requestSignature,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = _database.OpenConnection();
+        using var tx = connection.BeginTransaction();
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT stack_id, kind, version FROM updates WHERE id = @id LIMIT 1;";
+        cmd.Parameters.AddWithValue("@id", updateId);
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        var stackId = reader.GetString(0);
+        var updateKind = reader.GetString(1);
+        var updateVersion = reader.GetInt32(2);
+        reader.Close();
+        var isPreview = IsPreviewKind(updateKind);
+        var deploymentVersion = updateVersion > 0 ? updateVersion : version;
+        if (!isPreview && deploymentVersion <= 0)
+        {
+            return false;
+        }
+
+        cmd.CommandText = @"
+            INSERT INTO update_checkpoints (
+                id,
+                update_id,
+                sequence,
+                version,
+                deployment_json,
+                request_signature,
+                created_at)
+            VALUES (@id, @updateId, @sequence, @version, @deployment, @signature, @created);";
+        cmd.Parameters.Clear();
+        cmd.Parameters.AddWithValue("@id", Guid.NewGuid().ToString("N"));
+        cmd.Parameters.AddWithValue("@updateId", updateId);
+        cmd.Parameters.AddWithValue("@sequence", sequence);
+        cmd.Parameters.AddWithValue("@version", deploymentVersion);
+        cmd.Parameters.AddWithValue("@deployment", deploymentJson);
+        cmd.Parameters.AddWithValue("@signature", requestSignature);
+        cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        if (isPreview)
+        {
+            await tx.CommitAsync(cancellationToken);
+            return true;
+        }
+
+        cmd.CommandText = @"
+            INSERT OR REPLACE INTO deployments (id, stack_id, version, deployment_json, created_at)
+            VALUES (@depId, @stackId, @version, @deployment, @created);";
+        cmd.Parameters.Clear();
+        cmd.Parameters.AddWithValue("@depId", Guid.NewGuid().ToString("N"));
+        cmd.Parameters.AddWithValue("@stackId", stackId);
+        cmd.Parameters.AddWithValue("@version", deploymentVersion);
+        cmd.Parameters.AddWithValue("@deployment", deploymentJson);
+        cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await tx.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<StoredUpdateCheckpoint?> GetCheckpointBySequenceForUpdateAsync(
+        string updateId,
+        int sequence,
+        CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
-            SELECT sequence, version, deployment_json
+            SELECT sequence, version, deployment_json, request_signature
+            FROM update_checkpoints
+            WHERE update_id = @updateId AND sequence = @sequence
+            LIMIT 1;";
+        cmd.Parameters.AddWithValue("@updateId", updateId);
+        cmd.Parameters.AddWithValue("@sequence", sequence);
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new StoredUpdateCheckpoint(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3));
+    }
+
+    public async Task<StoredUpdateCheckpoint?> GetLatestCheckpointForUpdateAsync(
+        string updateId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = _database.OpenConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT sequence, version, deployment_json, request_signature
             FROM update_checkpoints
             WHERE update_id = @updateId
             ORDER BY sequence DESC
             LIMIT 1;";
         cmd.Parameters.AddWithValue("@updateId", updateId);
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
         {
-            return (
-                reader.GetInt32(0),
-                reader.GetInt32(1),
-                reader.GetString(2)
-            );
+            return null;
         }
-        return null;
+
+        return new StoredUpdateCheckpoint(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3));
     }
 
-    public async Task RecordEventsAsync(string updateId, IEnumerable<string> eventsJson)
+    public async Task RecordEventsAsync(
+        string updateId,
+        IEnumerable<string> eventsJson,
+        CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM update_events WHERE update_id = @updateId;";
         cmd.Parameters.AddWithValue("@updateId", updateId);
-        var sequence = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        var sequence = Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken));
 
         foreach (var json in eventsJson)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             sequence += 1;
             cmd.CommandText = @"
                 INSERT INTO update_events (id, update_id, sequence, event_json, created_at)
@@ -1169,31 +1615,34 @@ public sealed class BackendStore
             cmd.Parameters.AddWithValue("@sequence", sequence);
             cmd.Parameters.AddWithValue("@event", json);
             cmd.Parameters.AddWithValue("@created", DateTimeOffset.UtcNow.ToString("O"));
-            await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 
-    public async Task RecordJournalEntriesAsync(string updateId, IEnumerable<string> entriesJson)
+    public async Task RecordJournalEntriesAsync(
+        string updateId,
+        IEnumerable<string> entriesJson,
+        CancellationToken cancellationToken = default)
     {
-        await RecordEventsAsync(updateId, entriesJson);
+        await RecordEventsAsync(updateId, entriesJson, cancellationToken);
     }
 
-    public async Task<List<string>> GetEventsAsync(string updateId)
+    public async Task<List<string>> GetEventsAsync(string updateId, CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT event_json FROM update_events WHERE update_id = @updateId ORDER BY sequence ASC;";
         cmd.Parameters.AddWithValue("@updateId", updateId);
-        using var reader = await cmd.ExecuteReaderAsync();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         var results = new List<string>();
-        while (await reader.ReadAsync())
+        while (await reader.ReadAsync(cancellationToken))
         {
             results.Add(reader.GetString(0));
         }
         return results;
     }
 
-    public async Task CompleteUpdateAsync(string updateId, string status)
+    public async Task CompleteUpdateAsync(string updateId, string status, CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
@@ -1201,10 +1650,10 @@ public sealed class BackendStore
         cmd.Parameters.AddWithValue("@status", status);
         cmd.Parameters.AddWithValue("@completed", DateTimeOffset.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@id", updateId);
-        await cmd.ExecuteNonQueryAsync();
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task CancelUpdateAsync(string updateId)
+    public async Task CancelUpdateAsync(string updateId, CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
@@ -1212,7 +1661,7 @@ public sealed class BackendStore
         cmd.Parameters.AddWithValue("@status", "canceled");
         cmd.Parameters.AddWithValue("@completed", DateTimeOffset.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@id", updateId);
-        await cmd.ExecuteNonQueryAsync();
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<(string Status, int Version)?> GetUpdateAsync(string updateId)
@@ -1229,14 +1678,16 @@ public sealed class BackendStore
         return null;
     }
 
-    public async Task<(string StackId, string Kind, int Version)?> GetUpdateContextAsync(string updateId)
+    public async Task<(string StackId, string Kind, int Version)?> GetUpdateContextAsync(
+        string updateId,
+        CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = "SELECT stack_id, kind, version FROM updates WHERE id = @id LIMIT 1;";
         cmd.Parameters.AddWithValue("@id", updateId);
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
         {
             return (
                 reader.GetString(0),
@@ -1247,42 +1698,45 @@ public sealed class BackendStore
         return null;
     }
 
-    public async Task<List<(string Kind, string Status, int Version, string CreatedAt, string? CompletedAt, string? ProgramRequestJson)>>
+    public async Task<List<(string Id, string Kind, string Status, int Version, string CreatedAt, string? CompletedAt, string? ProgramRequestJson)>>
         GetHistoryAsync(string stackId)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
-            SELECT kind, status, version, created_at, completed_at, program_request_json
+            SELECT id, kind, status, version, created_at, completed_at, program_request_json
             FROM updates
             WHERE stack_id = @stackId
-            ORDER BY created_at DESC;";
+              AND kind <> 'preview'
+            ORDER BY version DESC, COALESCE(sequence, 0) DESC, created_at DESC;";
         cmd.Parameters.AddWithValue("@stackId", stackId);
         using var reader = await cmd.ExecuteReaderAsync();
-        var list = new List<(string, string, int, string, string?, string?)>();
+        var list = new List<(string, string, string, int, string, string?, string?)>();
         while (await reader.ReadAsync())
         {
             list.Add((
                 reader.GetString(0),
                 reader.GetString(1),
-                reader.GetInt32(2),
-                reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5)
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6)
             ));
         }
         return list;
     }
 
-    public async Task<(string Kind, string Status, int Version, string CreatedAt, string? CompletedAt, string? ProgramRequestJson)?>
+    public async Task<(string Id, string Kind, string Status, int Version, string CreatedAt, string? CompletedAt, string? ProgramRequestJson)?>
         GetUpdateByVersionAsync(string stackId, int version)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
-            SELECT kind, status, version, created_at, completed_at, program_request_json
+            SELECT id, kind, status, version, created_at, completed_at, program_request_json
             FROM updates
-            WHERE stack_id = @stackId AND version = @version
+            WHERE stack_id = @stackId AND version = @version AND kind <> 'preview'
+            ORDER BY COALESCE(sequence, 0) DESC, created_at DESC
             LIMIT 1;";
         cmd.Parameters.AddWithValue("@stackId", stackId);
         cmd.Parameters.AddWithValue("@version", version);
@@ -1292,16 +1746,19 @@ public sealed class BackendStore
             return (
                 reader.GetString(0),
                 reader.GetString(1),
-                reader.GetInt32(2),
-                reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5)
+                reader.GetString(2),
+                reader.GetInt32(3),
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6)
             );
         }
         return null;
     }
 
-    public async Task<(int Version, string DeploymentJson)?> GetLatestDeploymentAsync(string stackId)
+    public async Task<(int Version, string DeploymentJson)?> GetLatestDeploymentAsync(
+        string stackId,
+        CancellationToken cancellationToken = default)
     {
         using var connection = _database.OpenConnection();
         using var cmd = connection.CreateCommand();
@@ -1312,8 +1769,8 @@ public sealed class BackendStore
             ORDER BY version DESC
             LIMIT 1;";
         cmd.Parameters.AddWithValue("@stackId", stackId);
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
         {
             return (reader.GetInt32(0), reader.GetString(1));
         }

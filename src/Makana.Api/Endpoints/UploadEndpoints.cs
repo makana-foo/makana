@@ -1,9 +1,12 @@
+using System.Diagnostics.CodeAnalysis;
 using Makana.Api.Storage;
 
 namespace Makana.Api.Endpoints;
 
 internal static class UploadEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPut(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPut(String, Delegate)")]
     public static IEndpointRouteBuilder MapUploadEndpoints(this IEndpointRouteBuilder app, BackendStore store)
     {
         app.MapPut("/api/uploads/policypacks/{operationId}/archive", async (HttpRequest request, string operationId) =>

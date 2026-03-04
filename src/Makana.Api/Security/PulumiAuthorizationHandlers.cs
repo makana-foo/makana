@@ -88,55 +88,16 @@ internal sealed class OrgRouteAccessAuthorizationHandler(BackendStore store)
         }
 
         var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
-        if (!string.IsNullOrWhiteSpace(tokenOrgId))
-        {
-            var tokenOrgLogin = await store.GetOrgLoginByIdAsync(tokenOrgId);
-            if (!string.IsNullOrWhiteSpace(tokenOrgLogin))
-            {
-                if (string.Equals(tokenOrgLogin, org, StringComparison.OrdinalIgnoreCase))
-                {
-                    context.Succeed(requirement);
-                    return;
-                }
-
-                var user = await store.GetUserByIdAsync(userId);
-                if (user is not null &&
-                    NamespaceRoutingHelpers.IsLoginCollision(tokenOrgLogin, user.Value.Login))
-                {
-                    var alias = NamespaceRoutingHelpers.GetCollisionOrgAlias(tokenOrgLogin, tokenOrgId);
-                    if (string.Equals(alias, org, StringComparison.OrdinalIgnoreCase))
-                    {
-                        context.Succeed(requirement);
-                        return;
-                    }
-                }
-            }
-        }
-
-        var userRecord = await store.GetUserByIdAsync(userId);
-        if (userRecord is not null && string.Equals(userRecord.Value.Login, org, StringComparison.OrdinalIgnoreCase))
-        {
-            context.Succeed(requirement);
-            return;
-        }
-
-        if (userRecord is null)
-        {
-            return;
-        }
-
-        var memberOrgId = await NamespaceRoutingHelpers.ResolveMemberOrgIdFromRouteAsync(
+        var namespaceId = await NamespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
             store,
             userId,
-            userRecord.Value.Login,
-            org);
-        if (!string.IsNullOrWhiteSpace(memberOrgId))
+            org,
+            tokenOrgId);
+        if (string.IsNullOrWhiteSpace(namespaceId))
         {
-            context.Succeed(requirement);
             return;
         }
 
-        // Intentionally do not allow first-touch or orphan-org claiming.
-        // Org resources must pre-exist and caller must be authorized.
+        context.Succeed(requirement);
     }
 }

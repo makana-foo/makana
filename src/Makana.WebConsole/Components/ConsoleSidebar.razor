@@ -1,43 +1,59 @@
 @using Makana.WebConsole.Models
+@using Microsoft.AspNetCore.Routing
 @inject LinkGenerator LinkGenerator
 @inject IHttpContextAccessor HttpContextAccessor
 
-<aside class="console-sidebar" aria-label="Primary navigation">
-    <header class="sidebar-brand">
-        <strong>Makana</strong>
-        <small>Pulumi Console MVP</small>
+<aside data-sidebar aria-label="Primary navigation">
+    <header>
+        <div class="vstack gap-1">
+            <strong>Makana</strong>
+            <small class="text-light">Pulumi Console MVP</small>
+        </div>
+        <div class="mt-4">
+            <ot-dropdown>
+                <button type="button"
+                        class="outline small w-100 justify-between"
+                        popovertarget="owner-menu"
+                        aria-label="Switch owner">
+                    @SelectedOwnerLabel()
+                </button>
+                <menu popover id="owner-menu">
+                    @foreach (var owner in Context.OwnerOptions)
+                    {
+                        <a role="menuitem"
+                           href="@OwnerPageHref("/Stacks/Index", owner.Value)"
+                           aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">@owner.Label</a>
+                    }
+                </menu>
+            </ot-dropdown>
+        </div>
     </header>
 
-    <form method="get" action="@PageHref("/Stacks/Index")" class="owner-switcher">
-        <label for="owner-select">Organization</label>
-        <select id="owner-select" name="owner">
-            @foreach (var owner in Context.OwnerOptions)
-            {
-                <option value="@owner.Value" selected="@IsSelectedOwner(owner.Value)">@owner.Label</option>
-            }
-        </select>
-        <button type="submit" class="secondary">Switch</button>
-    </form>
-
-    <nav class="sidebar-section" aria-label="Workspace">
-        <h2>Workspace</h2>
+    <nav aria-label="Primary navigation">
         <ul>
-            <li><a class="@LinkClass("Dashboard")" href="@PageHref("/Index", new { owner = Context.SelectedOwner })">Dashboard</a></li>
-            <li><a class="@LinkClass("Stacks")" href="@PageHref("/Stacks/Index", new { owner = Context.SelectedOwner })">Stacks</a></li>
-            <li><a class="@LinkClass("Resources")" href="@PageHref("/Resources/Index", new { owner = Context.SelectedOwner })">Resources</a></li>
-            <li><a class="@LinkClass("Environments")" href="@PageHref("/Environments/Index", new { owner = Context.SelectedOwner })">Environments</a></li>
-            <li><a class="@LinkClass("Deployments")" href="@PageHref("/Deployments/Index", new { owner = Context.SelectedOwner })">Deployments</a></li>
-            <li><a class="@LinkClass("AiTasks")" href="@PageHref("/AiTasks/Index", new { owner = Context.SelectedOwner })">AI Tasks</a></li>
+            <li><a href="@OwnerPageHref("/Index")" aria-current="@AriaCurrent("Dashboard")">Dashboard</a></li>
+            <li><a href="@OwnerPageHref("/Stacks/Index")" aria-current="@AriaCurrent("Stacks")">Stacks</a></li>
+            <li><a href="@OwnerPageHref("/Resources/Index")" aria-current="@AriaCurrent("Resources")">Resources</a></li>
+            <li><a href="@OwnerPageHref("/Environments/Index")" aria-current="@AriaCurrent("Environments")">Environments</a></li>
+            <li><a href="@OwnerPageHref("/Deployments/Index")" aria-current="@AriaCurrent("Deployments")">Deployments</a></li>
+            <li><a href="@OwnerPageHref("/AiTasks/Index")" aria-current="@AriaCurrent("AiTasks")">AI Tasks</a></li>
+        </ul>
+
+        <ul class="mt-4">
+            <li><a href="@OwnerPageHref("/Platform/Index")" aria-current="@AriaCurrent("Platform")">Platform</a></li>
+            <li><a href="@OwnerPageHref("/Settings/Index")" aria-current="@AriaCurrent("Settings")">Settings</a></li>
         </ul>
     </nav>
 
-    <nav class="sidebar-section" aria-label="Platform">
-        <h2>Platform</h2>
-        <ul>
-            <li><a class="@LinkClass("Platform")" href="@PageHref("/Platform/Index", new { owner = Context.SelectedOwner })">Platform</a></li>
-            <li><a class="@LinkClass("Settings")" href="@PageHref("/Settings/Index", new { owner = Context.SelectedOwner })">Settings</a></li>
-        </ul>
-    </nav>
+    <footer>
+        <div class="vstack">
+            <button type="button"
+                    class="outline small w-100"
+                    onclick="window.makanaTheme.toggle()"
+                    data-theme-toggle-label>Use dark mode</button>
+            <a class="button outline small w-100" href="@OwnerPageHref("/Stacks/Index")">Open owner workspace</a>
+        </div>
+    </footer>
 </aside>
 
 @code {
@@ -50,8 +66,21 @@
     private bool IsSelectedOwner(string ownerValue)
         => string.Equals(ownerValue, Context.SelectedOwner, StringComparison.Ordinal);
 
-    private string LinkClass(string section)
-        => string.Equals(section, ActiveSection, StringComparison.Ordinal) ? "active" : string.Empty;
+    private string? AriaCurrent(string section)
+        => string.Equals(section, ActiveSection, StringComparison.Ordinal) ? "page" : null;
+
+    private string OwnerPageHref(string page)
+        => OwnerPageHref(page, Context.SelectedOwner);
+
+    private string OwnerPageHref(string page, string owner)
+        => PageHref(page, new { owner });
+
+    private string SelectedOwnerLabel()
+    {
+        var selected = Context.OwnerOptions.FirstOrDefault(option =>
+            string.Equals(option.Value, Context.SelectedOwner, StringComparison.Ordinal));
+        return selected?.Label ?? Context.SelectedOwner;
+    }
 
     private string PageHref(string page, object? values = null)
     {
@@ -61,10 +90,11 @@
             return "#";
         }
 
+        var routeValues = new RouteValueDictionary(values);
         var path = LinkGenerator.GetPathByPage(
             httpContext: httpContext,
             page: page,
-            values: values);
+            values: routeValues.Count > 0 ? routeValues : null);
         return string.IsNullOrWhiteSpace(path) ? "#" : path;
     }
 }
