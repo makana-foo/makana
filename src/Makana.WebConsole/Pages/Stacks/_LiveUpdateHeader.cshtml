@@ -1,0 +1,51 @@
+@using Makana.WebConsole.Models
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+<header>
+    <h2>Updates</h2>
+    <p class="stack-status-line">
+        Status:
+        <strong>@Model.StatusText</strong>
+        @if (Model.IsInProgress)
+        {
+            <span aria-busy="true" data-spinner="small" class="stack-status-spinner" aria-label="Update in progress"></span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Model.DisplayRunLabel))
+        {
+            <span> · @Model.DisplayRunLabel</span>
+        }
+        @if (Model.DisplayStartTime is not null)
+        {
+            <span> · <time title="@Model.DisplayStartedExactText">@Model.DisplayStartedRelativeText</time></span>
+        }
+    </p>
+    @if (!string.IsNullOrWhiteSpace(Model.DisplayMessage))
+    {
+        <p>
+            <strong>@Model.DisplayMessage</strong>
+        </p>
+    }
+    @if (Model.DisplayResourceChanges is { Count: > 0 } || Model.DisplayResourceCount is not null || Model.DisplayEndTime is not null)
+    {
+        <p>
+            @if (Model.DisplayResourceChanges is { Count: > 0 } resourceChanges)
+            {
+                <span>Changes:</span>
+                @foreach (var change in resourceChanges.OrderBy(static entry => entry.Key, StringComparer.Ordinal))
+                {
+                    <span><strong>@change.Key</strong> @change.Value</span>
+                }
+            }
+
+            @if (Model.DisplayResourceCount is { } resourceCount)
+            {
+                <span> · Resources <strong>@resourceCount</strong></span>
+            }
+
+            @if (Model.DisplayEndTime is { } endTime && Model.DisplayStartTime is { } startTime && endTime >= startTime && startTime > 0)
+            {
+                <span> · Duration <strong>@TimeSpan.FromSeconds(endTime - startTime)</strong></span>
+            }
+        </p>
+    }
+</header>

@@ -37,7 +37,7 @@ var api = builder.AddProject<Projects.Makana_Api>("api")
 
 var webConsole = builder.AddProject<Projects.Makana_WebConsole>("app")
     .WithReference(api)
-    .WithEnvironment("PULUMI_API_INTERNAL_ENDPOINT", api.GetEndpoint("http"))
+    .WithEnvironment("PULUMI_API", api.GetEndpoint("https"))
     .WithEnvironment("OIDC_PROVIDER", oidcProvider)
     .WithEnvironment("OIDC_MODE", oidcMode)
     .WithEnvironment("OIDC_CLIENT_ID", oidcClientId)

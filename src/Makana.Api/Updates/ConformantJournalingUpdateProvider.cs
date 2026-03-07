@@ -12,7 +12,8 @@ using Microsoft.Data.Sqlite;
 namespace Makana.Api.Updates;
 
 internal sealed class ConformantJournalingUpdateProvider(
-    BackendStore store) : IUpdateCheckpointJournalingProvider
+    BackendStore store,
+    EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     private const int SupportedJournalVersion = 1;
 
@@ -141,8 +142,8 @@ internal sealed class ConformantJournalingUpdateProvider(
             baselineDeploymentJson = latestDeployment?.DeploymentJson;
         }
 
-        var events = await store.GetEventsAsync(updateId, cancellationToken);
-        var journalEntries = ParseJournalEntries(events);
+        var journalEntriesJson = await store.GetJournalEntriesAsync(updateId, cancellationToken);
+        var journalEntries = ParseJournalEntries(journalEntriesJson);
         if (journalEntries.Count == 0)
         {
             return latestCheckpoint is not null;
@@ -520,10 +521,10 @@ internal sealed class ConformantJournalingUpdateProvider(
         return new PendingOperation(type, resource, element.GetRawText());
     }
 
-    private static string BuildDeploymentJson(DeploymentSnapshot snapshot, string? baselineDeploymentJson)
+    private string BuildDeploymentJson(DeploymentSnapshot snapshot, string? baselineDeploymentJson)
     {
         var template = ParseJsonNode(baselineDeploymentJson) as JsonObject;
-        template ??= ParseJsonNode(EndpointHelpers.CreateEmptyDeploymentJson()) as JsonObject;
+        template ??= ParseJsonNode(endpointHelpers.CreateEmptyDeploymentJson()) as JsonObject;
         template ??= new JsonObject();
 
         var resources = new JsonArray();

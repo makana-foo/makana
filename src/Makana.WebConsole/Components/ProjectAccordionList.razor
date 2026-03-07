@@ -1,7 +1,4 @@
 @using Makana.WebConsole.Models
-@inject LinkGenerator LinkGenerator
-@inject IHttpContextAccessor HttpContextAccessor
-
 @if (Projects.Count == 0)
 {
     <article class="card align-center">
@@ -15,46 +12,7 @@ else
 {
     foreach (var project in Projects)
     {
-        <details open>
-            <summary>
-                <div class="hstack justify-between items-center">
-                    <div>
-                        <h3>@project.ProjectName</h3>
-                        <p class="text-light">@(project.Description ?? "No project description provided.")</p>
-                    </div>
-                    <span class="badge secondary">@project.Stacks.Count stack(s)</span>
-                </div>
-            </summary>
-
-            <article class="card mt-4">
-                <div class="hstack mb-4">
-                    <span class="badge">@(project.Language ?? "unknown")</span>
-                    <span class="badge outline">Updated @FormatLastUpdate(project.LastUpdated)</span>
-                </div>
-
-                <div class="table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th scope="col">Stack</th>
-                                <th scope="col">Updated</th>
-                                <th scope="col">Resources</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        @foreach (var stack in project.Stacks)
-                        {
-                            <tr>
-                                <th scope="row"><a href="@StackHref(stack)">@stack.StackName</a></th>
-                                <td>@FormatLastUpdate(ToDateTimeOffset(stack.LastUpdate))</td>
-                                <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
-                            </tr>
-                        }
-                        </tbody>
-                    </table>
-                </div>
-            </article>
-        </details>
+        <ProjectStackCard Project="project" SelectedOwner="@SelectedOwner" />
     }
 }
 
@@ -64,44 +22,4 @@ else
 
     [Parameter]
     public string SelectedOwner { get; set; } = string.Empty;
-
-    private static string FormatLastUpdate(DateTimeOffset? value)
-        => value is null ? "No updates yet" : value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-
-    private string StackHref(StackSummary stack)
-        => PageHref(
-            "/Stacks/Details",
-            new
-            {
-                owner = stack.OrgName,
-                project = stack.ProjectName,
-                stack = stack.StackName,
-            });
-
-    private string PageHref(string page, object? values = null)
-    {
-        var httpContext = HttpContextAccessor.HttpContext;
-        if (httpContext is null)
-        {
-            return "#";
-        }
-
-        var path = LinkGenerator.GetPathByPage(
-            httpContext: httpContext,
-            page: page,
-            values: values);
-        return string.IsNullOrWhiteSpace(path) ? "#" : path;
-    }
-
-    private static DateTimeOffset? ToDateTimeOffset(long? unixTimestamp)
-    {
-        if (!unixTimestamp.HasValue || unixTimestamp.Value <= 0)
-        {
-            return null;
-        }
-
-        return unixTimestamp.Value > 1000000000000
-            ? DateTimeOffset.FromUnixTimeMilliseconds(unixTimestamp.Value)
-            : DateTimeOffset.FromUnixTimeSeconds(unixTimestamp.Value);
-    }
 }

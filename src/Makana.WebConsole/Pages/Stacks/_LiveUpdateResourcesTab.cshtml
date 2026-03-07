@@ -1,0 +1,38 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (Model.UpdateView?.Resources is { Length: > 0 } resources)
+{
+    <div class="table">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Type</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Info</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var entry in resources)
+            {
+                <tr>
+                    <td><code>@(entry.Type ?? "resource")</code></td>
+                    <th scope="row">
+                        <div>@(entry.Name ?? "resource")</div>
+                        @if (!string.IsNullOrWhiteSpace(entry.Urn))
+                        {
+                            <small><code>@entry.Urn</code></small>
+                        }
+                    </th>
+                    <td>@entry.Status</td>
+                    <td>@(string.IsNullOrWhiteSpace(entry.Info) ? "n/a" : entry.Info)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <p>No resource operations were recorded for this update.</p>
+}

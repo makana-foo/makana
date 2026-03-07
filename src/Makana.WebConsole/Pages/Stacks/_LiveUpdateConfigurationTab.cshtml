@@ -1,0 +1,43 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (Model.DisplayConfiguration.Count > 0)
+{
+    <div class="table">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Key</th>
+                    <th scope="col">Value</th>
+                    <th scope="col">Flags</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var entry in Model.DisplayConfiguration)
+            {
+                <tr>
+                    <th scope="row"><code>@entry.Key</code></th>
+                    <td><code>@entry.Value</code></td>
+                    <td>
+                        @if (entry.Secret)
+                        {
+                            <span>secret</span>
+                        }
+                        @if (entry.Object)
+                        {
+                            <span> object</span>
+                        }
+                        @if (!entry.Secret && !entry.Object)
+                        {
+                            <span>-</span>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <p>No configuration was recorded for this update.</p>
+}

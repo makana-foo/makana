@@ -1,5 +1,6 @@
-@page
+@page "/{owner}"
 @model Makana.WebConsole.Pages.IndexModel
+@using Makana.WebConsole.Models
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavSection"] = "Dashboard";
@@ -59,17 +60,17 @@
                 <tbody>
                 @foreach (var stack in Model.RecentStacks)
                 {
+                    var stackPath = ConsoleRoutePaths.Stack(Model.Owner ?? string.Empty, stack.ProjectName, stack.StackName);
                     <tr>
                         <td>@stack.ProjectName</td>
                         <th scope="row">
-                            <a asp-page="/Stacks/Details"
-                               asp-route-owner="@stack.OrgName"
-                               asp-route-project="@stack.ProjectName"
-                               asp-route-stack="@stack.StackName">
-                                @stack.StackName
-                            </a>
+                            <a href="@stackPath">@stack.StackName</a>
                         </th>
-                        <td>@FormatTime(stack.LastUpdate)</td>
+                        <td>
+                            <time title="@WebConsoleDisplayFormatter.FormatExactTime(stack.LastUpdate)">
+                                @WebConsoleDisplayFormatter.FormatRelativeTime(stack.LastUpdate, "No updates")
+                            </time>
+                        </td>
                         <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
                     </tr>
                 }
@@ -78,18 +79,3 @@
         </div>
     }
 </section>
-
-@functions {
-    private static string FormatTime(long? unixTimestamp)
-    {
-        if (!unixTimestamp.HasValue || unixTimestamp.Value <= 0)
-        {
-            return "No updates";
-        }
-
-        var value = unixTimestamp.Value > 1000000000000
-            ? DateTimeOffset.FromUnixTimeMilliseconds(unixTimestamp.Value)
-            : DateTimeOffset.FromUnixTimeSeconds(unixTimestamp.Value);
-        return value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
-    }
-}

@@ -7,7 +7,9 @@ using Makana.Api.Storage;
 
 namespace Makana.Api.Updates;
 
-internal sealed class LegacyNoJournalingUpdateProvider(BackendStore store) : IUpdateCheckpointJournalingProvider
+internal sealed class LegacyNoJournalingUpdateProvider(
+    BackendStore store,
+    EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     public int NegotiateJournalVersion(int? clientMaxJournalVersion)
     {
@@ -65,7 +67,7 @@ internal sealed class LegacyNoJournalingUpdateProvider(BackendStore store) : IUp
             return new UpdateMutationResult(UpdateMutationStatus.BadRequest, "no baseline deployment available for delta");
         }
 
-        if (!EndpointHelpers.TryApplyTextEdits(baselineDeployment, request.DeploymentDelta, out var updatedDeployment))
+        if (!endpointHelpers.TryApplyTextEdits(baselineDeployment, request.DeploymentDelta, out var updatedDeployment))
         {
             return new UpdateMutationResult(UpdateMutationStatus.BadRequest, "invalid deployment delta");
         }

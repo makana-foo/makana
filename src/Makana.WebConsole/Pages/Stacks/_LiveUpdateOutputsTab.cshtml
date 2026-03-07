@@ -1,0 +1,30 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (Model.DisplayOutputs.Count > 0)
+{
+    <div class="table">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Previous</th>
+                    <th scope="col">Current</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var entry in Model.DisplayOutputs)
+            {
+                <tr>
+                    <th scope="row"><code>@entry.Name</code></th>
+                    <td><code>@(entry.OldValue ?? "n/a")</code></td>
+                    <td><code>@(entry.NewValue ?? "n/a")</code></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <p>No stack outputs were recorded for this update.</p>
+}

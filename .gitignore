@@ -353,6 +353,8 @@ MigrationBackup/
 .ionide/
 
 # 
-/info/server.pid
-/integration/**/export.json
+info/untracked/
 src/**/.data
+test/**/.data
+integration/**/*.json
+integration/**/*.yaml

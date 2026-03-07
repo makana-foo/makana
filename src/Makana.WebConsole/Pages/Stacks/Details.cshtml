@@ -1,6 +1,7 @@
-@page
+@page "/{owner}/stacks/{project}/{stack}"
 @model Makana.WebConsole.Pages.Stacks.DetailsModel
 @using System.Text.Json
+@using Makana.WebConsole.Models
 @{
     ViewData["Title"] = $"Stack {Model.Stack}";
     ViewData["NavSection"] = "Stacks";
@@ -13,7 +14,11 @@
             <li aria-hidden="true">/</li>
             <li><a class="unstyled" asp-page="/Projects/Index" asp-route-owner="@Model.Owner" asp-route-project="@Model.Project">@Model.Project</a></li>
             <li aria-hidden="true">/</li>
-            <li><a class="unstyled" aria-current="page"><strong>@Model.Stack</strong></a></li>
+            <li>
+                <a class="unstyled" href="@ConsoleRoutePaths.Stack(Model.Owner, Model.Project, Model.Stack)" aria-current="page">
+                    <strong>@Model.Stack</strong>
+                </a>
+            </li>
         </ol>
     </nav>
 
@@ -22,7 +27,7 @@
         <p class="text-light">Owner: <strong>@Model.Owner</strong></p>
     </header>
 
-    @if (Model.Details is null)
+    @if (Model.LivePanel.StackMetadata is null)
     {
         <article class="card">
             <div role="alert" data-variant="error">
@@ -32,13 +37,44 @@
     }
     else
     {
-        <section id="stack-live-panel-container"
-                 hx-get="@Url.Page("/Stacks/Details", "LiveUpdatePanel", new { owner = Model.Owner, project = Model.Project, stack = Model.Stack, updateId = Model.LivePanel.UpdateId })"
-                 hx-trigger="stack-update-changed from:body@(Model.EnableLiveRefresh ? ", every 10s" : "")"
-                 hx-target="#stack-live-panel-container"
-                 hx-swap="outerHTML">
-            <partial name="_LiveUpdatePanel" model="Model.LivePanel" />
-        </section>
+        @if (Model.LivePanel.ShowUpdateHistory)
+        {
+            <div id="stack-latest-update">
+                <partial name="_StackLatestUpdateCard" model="Model.LivePanel" />
+            </div>
+
+            <div id="stack-update-history">
+                <partial name="_StackUpdateHistory" model="Model.LivePanel" />
+            </div>
+        }
+        
+        @if (!Model.LivePanel.ShowUpdateHistory)
+        {
+            <section id="stack-live-panel-container"
+                     data-stack-view-key="@($"{Model.Owner}:{Model.Project}:{Model.Stack}:{Model.LivePanel.UpdateId ?? "none"}")"
+                     hx-get="@Url.Page("/Stacks/Details", "LiveUpdateDelta", new { owner = Model.Owner, project = Model.Project, stack = Model.Stack, updateId = Model.LivePanel.UpdateId, runType = Model.LivePanel.SelectedRunType, updateRef = Model.LivePanel.SelectedRouteReference })"
+                     hx-trigger="stack-update-changed from:body@(Model.EnableLiveRefresh ? ", every 10s" : "")"
+                     hx-target="#stack-live-panel-refresh-anchor"
+                     hx-swap="none"
+                     hx-include="#stack-live-panel-token">
+                <partial name="_LiveUpdateState" model="Model.LivePanel" />
+                <div id="stack-live-panel-refresh-anchor"></div>
+                <partial name="_LiveUpdatePanel" model="Model.LivePanel" />
+            </section>
+        }
+        else if (Model.EnableLiveRefresh)
+        {
+            <section id="stack-live-panel-container"
+                     data-stack-view-key="@($"{Model.Owner}:{Model.Project}:{Model.Stack}:{Model.LivePanel.UpdateId ?? "none"}")"
+                     hx-get="@Url.Page("/Stacks/Details", "LiveUpdateDelta", new { owner = Model.Owner, project = Model.Project, stack = Model.Stack, updateId = Model.LivePanel.UpdateId, runType = Model.LivePanel.SelectedRunType, updateRef = Model.LivePanel.SelectedRouteReference })"
+                     hx-trigger="stack-update-changed from:body, every 10s"
+                     hx-target="#stack-live-panel-refresh-anchor"
+                     hx-swap="none"
+                     hx-include="#stack-live-panel-token">
+                <partial name="_LiveUpdateState" model="Model.LivePanel" />
+                <div id="stack-live-panel-refresh-anchor"></div>
+            </section>
+        }
 
         <article class="card">
             <header>
@@ -48,13 +84,13 @@
                 <div class="col-6">
                     <label data-field>
                         Version
-                        <input type="text" value="@Model.Details.Version" readonly />
+                        <input type="text" value="@Model.LivePanel.StackMetadata.Version" readonly />
                     </label>
                 </div>
                 <div class="col-6">
                     <label data-field>
                         Active update
-                        <input type="text" value="@(string.IsNullOrWhiteSpace(Model.Details.ActiveUpdate) ? "None" : Model.Details.ActiveUpdate)" readonly />
+                        <input type="text" value="@(string.IsNullOrWhiteSpace(Model.LivePanel.StackMetadata.ActiveUpdate) ? "None" : Model.LivePanel.StackMetadata.ActiveUpdate)" readonly />
                     </label>
                 </div>
             </div>
@@ -64,7 +100,7 @@
             <header>
                 <h3>Tags</h3>
             </header>
-            @if (Model.Details.Tags is null || Model.Details.Tags.Count == 0)
+            @if (Model.LivePanel.StackMetadata.Tags is null || Model.LivePanel.StackMetadata.Tags.Count == 0)
             {
                 <p>No tags set on this stack.</p>
             }
@@ -79,7 +115,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                        @foreach (var entry in Model.Details.Tags.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
+                        @foreach (var entry in Model.LivePanel.StackMetadata.Tags.OrderBy(kvp => kvp.Key, StringComparer.Ordinal))
                         {
                             <tr>
                                 <th scope="row"><code>@entry.Key</code></th>

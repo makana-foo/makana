@@ -52,14 +52,14 @@ internal static class DeploymentEndpoints
             return Results.Ok();
         });
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/deployments/settings/encrypt", (JsonElement request) =>
+        app.MapPost("/api/stacks/{org}/{project}/{stack}/deployments/settings/encrypt", (JsonElement request, EndpointHelpers endpointHelpers) =>
         {
-            var plaintext = EndpointHelpers.ExtractSecretPlaintext(request);
-            var cipher = EndpointHelpers.Encrypt(secretKey, System.Text.Encoding.UTF8.GetBytes(plaintext));
+            var plaintext = endpointHelpers.ExtractSecretPlaintext(request);
+            var cipher = endpointHelpers.Encrypt(secretKey, System.Text.Encoding.UTF8.GetBytes(plaintext));
             return Results.Ok(new SecretValueResponse(Convert.ToBase64String(cipher)));
         });
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/deployments", async (HttpContext context, string org, string project, string stack, CreateDeploymentRequest request) =>
+        app.MapPost("/api/stacks/{org}/{project}/{stack}/deployments", async (HttpContext context, string org, string project, string stack, CreateDeploymentRequest request, EndpointHelpers endpointHelpers) =>
         {
             var ids = await store.GetStackIdsAsync(org, project, stack);
             if (ids is null)
@@ -70,7 +70,7 @@ internal static class DeploymentEndpoints
             var deploymentId = await store.CreateDeploymentRunAsync(
                 ids.Value.StackId,
                 JsonSerializer.Serialize(request, DeploymentEndpointsJsonContext.Default.CreateDeploymentRequest));
-            var baseUrl = EndpointHelpers.GetBaseUrl(context.Request);
+            var baseUrl = endpointHelpers.GetBaseUrl(context.Request);
             return Results.Ok(new CreateDeploymentResponse(deploymentId, $"{baseUrl}/console/deployments/{deploymentId}"));
         }).RequireAuthorization("ApiToken");
 

@@ -2,10 +2,9 @@ using Makana.Api.Storage;
 
 namespace Makana.Api.Security;
 
-internal static class NamespaceRoutingHelpers
+internal sealed class NamespaceRoutingHelpers(BackendStore store)
 {
-    public static async Task<string?> ResolveMemberOrgIdFromRouteAsync(
-        BackendStore store,
+    public async Task<string?> ResolveMemberOrgIdFromRouteAsync(
         string userId,
         string routeOwner)
     {
@@ -21,8 +20,7 @@ internal static class NamespaceRoutingHelpers
         return null;
     }
 
-    public static async Task<string?> ResolveAccessibleNamespaceIdAsync(
-        BackendStore store,
+    public async Task<string?> ResolveAccessibleNamespaceIdAsync(
         string userId,
         string routeOwner,
         string? tokenOrgId)
@@ -47,6 +45,6 @@ internal static class NamespaceRoutingHelpers
             return userId;
         }
 
-        return await ResolveMemberOrgIdFromRouteAsync(store, userId, routeOwner);
+        return await ResolveMemberOrgIdFromRouteAsync(userId, routeOwner);
     }
 }

@@ -19,10 +19,10 @@ internal static class RegistryEndpoints
         app.MapGet("/api/orgs/{org}/policypacks", () =>
             Results.Ok(new ListPolicyPacksResponse(Array.Empty<PolicyPackWithVersions>())));
 
-        app.MapPost("/api/orgs/{org}/policypacks", (HttpContext context) =>
+        app.MapPost("/api/orgs/{org}/policypacks", (HttpContext context, EndpointHelpers endpointHelpers) =>
         {
             var operationId = Guid.NewGuid().ToString("N");
-            var uploadUri = $"{EndpointHelpers.GetBaseUrl(context.Request)}/api/uploads/policypacks/{operationId}/archive";
+            var uploadUri = $"{endpointHelpers.GetBaseUrl(context.Request)}/api/uploads/policypacks/{operationId}/archive";
             return Results.Ok(new CreatePolicyPackResponse(1, uploadUri, null));
         });
 
@@ -54,9 +54,9 @@ internal static class RegistryEndpoints
             Results.Ok(new ListPackagesResponse(Array.Empty<PackageMetadata>(), null)));
 
         app.MapGet("/api/preview/registry/packages/{source}/{publisher}/{name}/versions/{version}",
-            (string source, string publisher, string name, string version, HttpContext context) =>
+            (string source, string publisher, string name, string version, HttpContext context, EndpointHelpers endpointHelpers) =>
             {
-                var baseUrl = EndpointHelpers.GetBaseUrl(context.Request);
+                var baseUrl = endpointHelpers.GetBaseUrl(context.Request);
                 var readmeUrl = $"{baseUrl}/api/preview/registry/packages/{source}/{publisher}/{name}/versions/{version}/readme";
                 var schemaUrl = $"{baseUrl}/api/preview/registry/packages/{source}/{publisher}/{name}/versions/{version}/schema";
                 var metadata = new PackageMetadata(
@@ -83,14 +83,14 @@ internal static class RegistryEndpoints
             });
 
         app.MapPost("/api/preview/registry/packages/{source}/{publisher}/{name}/versions",
-            async (HttpContext context, string source, string publisher, string name, StartPackagePublishRequest request) =>
+            async (HttpContext context, string source, string publisher, string name, StartPackagePublishRequest request, EndpointHelpers endpointHelpers) =>
             {
                 var operationId = Guid.NewGuid().ToString("N");
                 await store.CreateRegistryOperationAsync(
                     operationId,
                     "package",
                     JsonSerializer.Serialize(request, RegistryEndpointsJsonContext.Default.StartPackagePublishRequest));
-                var baseUrl = EndpointHelpers.GetBaseUrl(context.Request);
+                var baseUrl = endpointHelpers.GetBaseUrl(context.Request);
                 var uploadUrls = new PackageUploadUrls(
                     $"{baseUrl}/api/uploads/packages/{operationId}/schema",
                     $"{baseUrl}/api/uploads/packages/{operationId}/index",
@@ -112,9 +112,9 @@ internal static class RegistryEndpoints
             Results.Ok(new ListTemplatesResponse(Array.Empty<TemplateMetadata>(), null)));
 
         app.MapGet("/api/registry/templates/{source}/{publisher}/{name}/versions/{version}",
-            (string source, string publisher, string name, string version, HttpContext context) =>
+            (string source, string publisher, string name, string version, HttpContext context, EndpointHelpers endpointHelpers) =>
             {
-                var baseUrl = EndpointHelpers.GetBaseUrl(context.Request);
+                var baseUrl = endpointHelpers.GetBaseUrl(context.Request);
                 var downloadUrl = $"{baseUrl}/api/registry/templates/{source}/{publisher}/{name}/versions/{version}/download";
                 var readmeUrl = $"{baseUrl}/api/registry/templates/{source}/{publisher}/{name}/versions/{version}/readme";
                 var metadata = new TemplateMetadata(
@@ -135,14 +135,14 @@ internal static class RegistryEndpoints
             });
 
         app.MapPost("/api/registry/templates/{source}/{publisher}/{name}/versions",
-            async (HttpContext context, StartTemplatePublishRequest request) =>
+            async (HttpContext context, StartTemplatePublishRequest request, EndpointHelpers endpointHelpers) =>
             {
                 var operationId = Guid.NewGuid().ToString("N");
                 await store.CreateRegistryOperationAsync(
                     operationId,
                     "template",
                     JsonSerializer.Serialize(request, RegistryEndpointsJsonContext.Default.StartTemplatePublishRequest));
-                var baseUrl = EndpointHelpers.GetBaseUrl(context.Request);
+                var baseUrl = endpointHelpers.GetBaseUrl(context.Request);
                 var uploadUrls = new TemplateUploadUrls($"{baseUrl}/api/uploads/templates/{operationId}/archive");
                 return Results.Ok(new StartTemplatePublishResponse(operationId, uploadUrls));
             });

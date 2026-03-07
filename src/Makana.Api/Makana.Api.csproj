@@ -15,5 +15,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Makana.ServiceDefaults\Makana.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Makana.Journaling\Makana.Journaling.csproj" />
+    <ProjectReference Include="..\Makana.StackUpdates\Makana.StackUpdates.csproj" />
   </ItemGroup>
 </Project>

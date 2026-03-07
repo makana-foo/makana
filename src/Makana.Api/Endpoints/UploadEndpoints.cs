@@ -9,21 +9,21 @@ internal static class UploadEndpoints
     [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPut(String, Delegate)")]
     public static IEndpointRouteBuilder MapUploadEndpoints(this IEndpointRouteBuilder app, BackendStore store)
     {
-        app.MapPut("/api/uploads/policypacks/{operationId}/archive", async (HttpRequest request, string operationId) =>
+        app.MapPut("/api/uploads/policypacks/{operationId}/archive", async (HttpRequest request, string operationId, EndpointHelpers endpointHelpers) =>
         {
-            await EndpointHelpers.SaveUploadAsync(store, request, Path.Combine("policypacks", operationId, "archive"));
+            await endpointHelpers.SaveUploadAsync(store, request, Path.Combine("policypacks", operationId, "archive"));
             return Results.Ok();
         });
 
-        app.MapPut("/api/uploads/packages/{operationId}/{artifact}", async (HttpRequest request, string operationId, string artifact) =>
+        app.MapPut("/api/uploads/packages/{operationId}/{artifact}", async (HttpRequest request, string operationId, string artifact, EndpointHelpers endpointHelpers) =>
         {
-            await EndpointHelpers.SaveUploadAsync(store, request, Path.Combine("packages", operationId, artifact));
+            await endpointHelpers.SaveUploadAsync(store, request, Path.Combine("packages", operationId, artifact));
             return Results.Ok();
         });
 
-        app.MapPut("/api/uploads/templates/{operationId}/archive", async (HttpRequest request, string operationId) =>
+        app.MapPut("/api/uploads/templates/{operationId}/archive", async (HttpRequest request, string operationId, EndpointHelpers endpointHelpers) =>
         {
-            await EndpointHelpers.SaveUploadAsync(store, request, Path.Combine("templates", operationId, "archive"));
+            await endpointHelpers.SaveUploadAsync(store, request, Path.Combine("templates", operationId, "archive"));
             return Results.Ok();
         });
 

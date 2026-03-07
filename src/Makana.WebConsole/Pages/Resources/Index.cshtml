@@ -1,5 +1,6 @@
-@page
+@page "/{owner}/resources"
 @model Makana.WebConsole.Pages.Resources.IndexModel
+@using Makana.WebConsole.Models
 @{
     ViewData["Title"] = "Resources";
     ViewData["NavSection"] = "Resources";
@@ -31,15 +32,11 @@
                 <tbody>
                 @foreach (var stack in Model.Stacks)
                 {
+                    var stackPath = ConsoleRoutePaths.Stack(Model.Owner ?? string.Empty, stack.ProjectName, stack.StackName);
                     <tr>
                         <td>@stack.ProjectName</td>
                         <th scope="row">
-                            <a asp-page="/Stacks/Details"
-                               asp-route-owner="@stack.OrgName"
-                               asp-route-project="@stack.ProjectName"
-                               asp-route-stack="@stack.StackName">
-                                @stack.StackName
-                            </a>
+                            <a href="@stackPath">@stack.StackName</a>
                         </th>
                         <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
                     </tr>

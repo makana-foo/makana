@@ -1,0 +1,8 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+<input id="stack-live-panel-token"
+       type="hidden"
+       name="continuationToken"
+       value="@Model.ContinuationToken"
+       data-live-enabled="@(Model.IsInProgress ? "true" : "false")"
+       hx-swap-oob="outerHTML" />

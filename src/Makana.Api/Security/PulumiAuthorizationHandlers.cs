@@ -55,7 +55,8 @@ internal sealed class UpdateTokenForRouteAuthorizationHandler(BackendStore store
 
 internal sealed class OrgRouteAccessRequirement : IAuthorizationRequirement;
 
-internal sealed class OrgRouteAccessAuthorizationHandler(BackendStore store)
+internal sealed class OrgRouteAccessAuthorizationHandler(
+    NamespaceRoutingHelpers namespaceRoutingHelpers)
     : AuthorizationHandler<OrgRouteAccessRequirement>
 {
     protected override async Task HandleRequirementAsync(
@@ -88,8 +89,7 @@ internal sealed class OrgRouteAccessAuthorizationHandler(BackendStore store)
         }
 
         var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
-        var namespaceId = await NamespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
-            store,
+        var namespaceId = await namespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
             userId,
             org,
             tokenOrgId);

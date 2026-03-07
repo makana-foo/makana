@@ -1,0 +1,191 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+@using Makana.WebConsole.Models
+
+@{
+    var summaryLineDeltas = Model.SummaryLineDeltas;
+    var diffLineDeltas = Model.DiffLineDeltas;
+    var diagnosticLineDeltas = Model.DiagnosticLineDeltas;
+    var requiresInitialChangesRender = string.Equals(Model.RequestedContinuationToken, "0", StringComparison.Ordinal) && Model.HasChanges;
+}
+
+<partial name="_LiveUpdateState" model="Model" />
+
+@if (Model.ShowUpdateHistory)
+{
+    <div id="stack-latest-update" hx-swap-oob="outerHTML">
+        <partial name="_StackLatestUpdateCard" model="Model" />
+    </div>
+
+    @if (Model.RemainingUpdateHistoryEntries.Count > 0)
+    {
+        <div id="stack-update-history" hx-swap-oob="outerHTML">
+            <partial name="_StackUpdateHistory" model="Model" />
+        </div>
+    }
+}
+else if (!Model.IsIncrementalDelta)
+{
+    <article id="live-update-panel" class="card" hx-swap-oob="outerHTML">
+        <partial name="_LiveUpdateHeader" model="Model" />
+
+        <ot-tabs data-stack-tab-state="@($"{Model.Org}:{Model.Project}:{Model.Stack}:{Model.UpdateId ?? "none"}:primary")">
+            <div role="tablist" class="hstack">
+                <button type="button" role="tab" aria-selected="true">Changes</button>
+                <button type="button" role="tab">Timeline</button>
+                <button type="button" role="tab">Configuration</button>
+                <button type="button" role="tab">Outputs</button>
+                <button type="button" role="tab">Resources</button>
+                <button type="button" role="tab">Metadata</button>
+            </div>
+
+            <div role="tabpanel">
+                <partial name="_LiveUpdateChangesTab" model="Model" />
+            </div>
+
+            <div role="tabpanel">
+                <partial name="_LiveUpdateTimelineTab" model="Model" />
+            </div>
+
+            <div role="tabpanel">
+                <partial name="_LiveUpdateConfigurationTab" model="Model" />
+            </div>
+
+            <div role="tabpanel">
+                <partial name="_LiveUpdateOutputsTab" model="Model" />
+            </div>
+
+            <div role="tabpanel">
+                <partial name="_LiveUpdateResourcesTab" model="Model" />
+            </div>
+
+            <div role="tabpanel">
+                <partial name="_LiveUpdateMetadataTab" model="Model" />
+            </div>
+        </ot-tabs>
+    </article>
+}
+else
+{
+    @if (Model.Delta?.InfoChanged == true || Model.Delta?.SummaryChanged == true)
+    {
+        @if (Model.ShowUpdateHistory)
+        {
+            <div id="stack-latest-update" hx-swap-oob="outerHTML">
+                <partial name="_StackLatestUpdateCard" model="Model" />
+            </div>
+        }
+        else
+        {
+            <div id="live-update-panel-header" hx-swap-oob="outerHTML">
+                <partial name="_LiveUpdateHeader" model="Model" />
+            </div>
+        }
+    }
+
+    @if (requiresInitialChangesRender)
+    {
+        <div id="live-update-panel-changes" hx-swap-oob="outerHTML">
+            <partial name="_LiveUpdateChangesTab" model="Model" />
+        </div>
+    }
+
+    @if (!requiresInitialChangesRender)
+    {
+        @foreach (var deltaLine in summaryLineDeltas)
+        {
+            if (string.Equals(deltaLine.Action, "append", StringComparison.Ordinal))
+            {
+                <div id="@StackConsoleDomIds.For("summary", deltaLine.Key)" class="@deltaLine.Line?.CssClass" hx-swap-oob="beforeend:#live-update-summary-lines">@foreach (var segment in deltaLine.Line?.Segments ?? []) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+            }
+            else if (string.Equals(deltaLine.Action, "delete", StringComparison.Ordinal))
+            {
+                <div id="@StackConsoleDomIds.For("summary", deltaLine.Key)" hx-swap-oob="delete"></div>
+            }
+            else
+            {
+                <div id="@StackConsoleDomIds.For("summary", deltaLine.Key)" class="@deltaLine.Line?.CssClass" hx-swap-oob="outerHTML">@foreach (var segment in deltaLine.Line?.Segments ?? []) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+            }
+        }
+
+        @foreach (var deltaLine in diffLineDeltas)
+        {
+            if (string.Equals(deltaLine.Action, "append", StringComparison.Ordinal))
+            {
+                <div id="@StackConsoleDomIds.For("diff", deltaLine.Key)" class="@deltaLine.Line?.CssClass" hx-swap-oob="beforeend:#live-update-diff-lines">@foreach (var segment in deltaLine.Line?.Segments ?? []) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+            }
+            else if (string.Equals(deltaLine.Action, "delete", StringComparison.Ordinal))
+            {
+                <div id="@StackConsoleDomIds.For("diff", deltaLine.Key)" hx-swap-oob="delete"></div>
+            }
+            else
+            {
+                <div id="@StackConsoleDomIds.For("diff", deltaLine.Key)" class="@deltaLine.Line?.CssClass" hx-swap-oob="outerHTML">@foreach (var segment in deltaLine.Line?.Segments ?? []) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+            }
+        }
+
+        @foreach (var deltaLine in diagnosticLineDeltas)
+        {
+            if (string.Equals(deltaLine.Action, "append", StringComparison.Ordinal))
+            {
+                <div id="@StackConsoleDomIds.For("diagnostic", deltaLine.Key)" class="@deltaLine.Line?.CssClass" hx-swap-oob="beforeend:#live-update-diagnostic-lines">@foreach (var segment in deltaLine.Line?.Segments ?? []) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+            }
+            else if (string.Equals(deltaLine.Action, "delete", StringComparison.Ordinal))
+            {
+                <div id="@StackConsoleDomIds.For("diagnostic", deltaLine.Key)" hx-swap-oob="delete"></div>
+            }
+            else
+            {
+                <div id="@StackConsoleDomIds.For("diagnostic", deltaLine.Key)" class="@deltaLine.Line?.CssClass" hx-swap-oob="outerHTML">@foreach (var segment in deltaLine.Line?.Segments ?? []) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+            }
+        }
+    }
+
+    @if (Model.Delta?.ChangesChanged == true)
+    {
+        if (Model.DeltaChangeFeedEntries.Count > 0)
+        {
+            <partial name="_LiveUpdateChangesFeedDelta" model="Model" />
+        }
+        else
+        {
+            <div id="live-update-panel-timeline" hx-swap-oob="outerHTML">
+                <partial name="_LiveUpdateChangesFeed" model="Model" />
+            </div>
+        }
+    }
+
+    @if (Model.Delta?.ConfigurationChanged == true)
+    {
+        <div id="live-update-panel-configuration" hx-swap-oob="outerHTML">
+            <partial name="_LiveUpdateConfigurationTab" model="Model" />
+        </div>
+    }
+
+    @if (Model.Delta?.OutputsChanged == true)
+    {
+        <div id="live-update-panel-outputs" hx-swap-oob="outerHTML">
+            <partial name="_LiveUpdateOutputsTab" model="Model" />
+        </div>
+    }
+
+    @if (Model.Delta?.ResourcesChanged == true)
+    {
+        <div id="live-update-panel-resources" hx-swap-oob="outerHTML">
+            <partial name="_LiveUpdateResourcesTab" model="Model" />
+        </div>
+    }
+
+    @if (Model.Delta?.InfoChanged == true || Model.Delta?.SummaryChanged == true)
+    {
+        <div id="live-update-panel-metadata" hx-swap-oob="outerHTML">
+            <partial name="_LiveUpdateMetadataTab" model="Model" />
+        </div>
+
+        @if (Model.ShowUpdateHistory)
+        {
+            <div id="stack-update-history" hx-swap-oob="outerHTML">
+                <partial name="_StackUpdateHistory" model="Model" />
+            </div>
+        }
+    }
+}

@@ -1,0 +1,47 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (Model.RemainingUpdateHistoryEntries.Count > 0)
+{
+    <article class="card" id="stack-update-history-card">
+        <header>
+            <h3>Updates</h3>
+            <p class="text-light">Previous updates for this stack.</p>
+        </header>
+        <div class="table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Update</th>
+                        <th scope="col">Kind</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Started</th>
+                        <th scope="col">Message</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var update in Model.RemainingUpdateHistoryEntries)
+                {
+                    <tr>
+                        <th scope="row">
+                            @if (!string.IsNullOrWhiteSpace(update.Href))
+                            {
+                                <a href="@update.Href" aria-current="@(update.IsSelected ? "page" : null)">@update.Title</a>
+                            }
+                            else
+                            {
+                                <span>@update.Title</span>
+                            }
+                        </th>
+                        <td>@update.KindLabel</td>
+                        <td>@update.StatusText</td>
+                        <td>
+                            <time title="@update.StartedExactText">@update.StartedRelativeText</time>
+                        </td>
+                        <td>@(string.IsNullOrWhiteSpace(update.Message) ? "n/a" : update.Message)</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </article>
+}

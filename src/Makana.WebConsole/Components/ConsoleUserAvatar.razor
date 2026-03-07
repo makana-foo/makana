@@ -1,0 +1,19 @@
+@namespace Makana.WebConsole.Components
+
+@if (!string.IsNullOrWhiteSpace(AvatarPath))
+{
+    <span class="console-user-avatar-shell" title="@AltText" aria-hidden="true">
+        <img class="console-user-avatar" src="@AvatarPath" alt="@AltText" width="@Size" height="@Size" />
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string AvatarPath { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string AltText { get; set; } = string.Empty;
+
+    [Parameter]
+    public int Size { get; set; } = 28;
+}

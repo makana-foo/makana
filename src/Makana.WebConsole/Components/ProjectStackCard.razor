@@ -1,0 +1,81 @@
+@using Makana.WebConsole.Models
+
+<details open class="project-stack-card">
+    <summary class="project-stack-card__summary">
+        <div class="project-stack-card__heading">
+            <div class="project-stack-card__title-group">
+                <h3>@Project.ProjectName</h3>
+                <p class="text-light">@(Project.Description ?? "No project description provided.")</p>
+            </div>
+            <span class="badge secondary project-stack-card__stack-count">@Project.Stacks.Count stack(s)</span>
+        </div>
+    </summary>
+
+    <article class="card mt-4">
+        <div class="project-stack-card__meta">
+            <span class="badge outline project-stack-card__updated"
+                  title="@WebConsoleDisplayFormatter.FormatExactTime(Project.LastUpdated)">
+                Updated @FormatLastUpdate(Project.LastUpdated)
+            </span>
+            <div class="project-stack-card__meta-right">
+                <span class="badge secondary">@GetResourceBadgeText(Project)</span>
+                <span class="badge">@(Project.Language ?? "unknown")</span>
+            </div>
+        </div>
+
+        <div class="table">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Stack</th>
+                        <th scope="col">Updated</th>
+                        <th scope="col">Resources</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var stack in Project.Stacks)
+                {
+                    <tr>
+                        <th scope="row"><a href="@StackHref(stack)">@stack.StackName</a></th>
+                        <td>
+                            <time title="@WebConsoleDisplayFormatter.FormatExactTime(stack.LastUpdate)">
+                                @FormatLastUpdate(WebConsoleDisplayFormatter.ToDateTimeOffset(stack.LastUpdate))
+                            </time>
+                        </td>
+                        <td>@(stack.ResourceCount?.ToString() ?? "-")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </article>
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public ProjectGroupSummary Project { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public string SelectedOwner { get; set; } = string.Empty;
+
+    private static string FormatLastUpdate(DateTimeOffset? value)
+        => WebConsoleDisplayFormatter.FormatRelativeTime(value, "No updates yet");
+
+    private static string GetResourceBadgeText(ProjectGroupSummary project)
+    {
+        var knownResources = project.Stacks
+            .Where(static stack => stack.ResourceCount.HasValue)
+            .Select(static stack => stack.ResourceCount!.Value)
+            .ToArray();
+        if (knownResources.Length == 0)
+        {
+            return "resources: -";
+        }
+
+        var total = knownResources.Sum();
+        return $"resources: {total}";
+    }
+
+    private string StackHref(StackSummary stack)
+        => ConsoleRoutePaths.Stack(SelectedOwner, stack.ProjectName, stack.StackName);
+}

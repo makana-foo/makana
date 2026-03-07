@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Makana.StackUpdates.Pulumi;
 
 namespace Makana.Api.Contracts;
 
@@ -162,11 +163,12 @@ public record CompleteUpdateRequest(
 );
 
 public record EngineEventBatch(
-    [property: JsonPropertyName("events")] JsonElement Events
+    [property: JsonPropertyName("events")] EngineEvent[] Events
 );
 
 public record UpdateInfo(
     [property: JsonPropertyName("kind")] string? Kind = null,
+    [property: JsonPropertyName("isPreview")] bool? IsPreview = null,
     [property: JsonPropertyName("startTime")] long? StartTime = null,
     [property: JsonPropertyName("message")] string? Message = null,
     [property: JsonPropertyName("environment")] Dictionary<string, string>? Environment = null,
@@ -190,7 +192,63 @@ public record LatestUpdateInfo(
 
 public record UpdateResults(
     [property: JsonPropertyName("status")] string? Status = null,
-    [property: JsonPropertyName("version")] int? Version = null
+    [property: JsonPropertyName("version")] int? Version = null,
+    [property: JsonPropertyName("events")] JsonElement[]? Events = null,
+    [property: JsonPropertyName("continuationToken")] string? ContinuationToken = null
+);
+
+public record SelectedUpdateReferenceResponse(
+    [property: JsonPropertyName("updateID")] string UpdateId,
+    [property: JsonPropertyName("version")] int? Version,
+    [property: JsonPropertyName("kind")] string? Kind,
+    [property: JsonPropertyName("isPreview")] bool IsPreview,
+    [property: JsonPropertyName("routeRunType")] string RouteRunType,
+    [property: JsonPropertyName("routeReference")] string RouteReference
+);
+
+public record UpdateServiceGitActor(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("githubLogin")] string GitHubLogin,
+    [property: JsonPropertyName("avatarUrl")] string AvatarUrl
+);
+
+public record UpdateServiceGitHubCommitInfo(
+    [property: JsonPropertyName("slug")] string Slug,
+    [property: JsonPropertyName("sha")] string Sha,
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("author")] UpdateServiceGitActor? Author
+);
+
+public record UpdateServiceEnvelope(
+    [property: JsonPropertyName("info")] UpdateInfo Info,
+    [property: JsonPropertyName("updateID")] string UpdateId,
+    [property: JsonPropertyName("githubCommitInfo")] UpdateServiceGitHubCommitInfo? GitHubCommitInfo,
+    [property: JsonPropertyName("version")] int Version,
+    [property: JsonPropertyName("latestVersion")] int LatestVersion,
+    [property: JsonPropertyName("requestedBy")] ServiceUserInfo? RequestedBy,
+    [property: JsonPropertyName("requestedByToken")] string RequestedByToken
+);
+
+public record UpdateVersionSummary(
+    [property: JsonPropertyName("result")] string Result,
+    [property: JsonPropertyName("startTime")] long StartTime,
+    [property: JsonPropertyName("endTime")] long EndTime,
+    [property: JsonPropertyName("resourceCount")] int ResourceCount
+);
+
+public record StackResourceCountResponse(
+    [property: JsonPropertyName("resourceCount")] int ResourceCount,
+    [property: JsonPropertyName("version")] int Version
+);
+
+public record StackResourceRecord(
+    [property: JsonPropertyName("resource")] JsonElement Resource
+);
+
+public record StackResourcesResponse(
+    [property: JsonPropertyName("resources")] StackResourceRecord[] Resources,
+    [property: JsonPropertyName("region")] string? Region,
+    [property: JsonPropertyName("version")] int Version
 );
 
 public record StackRenameRequest(
@@ -215,8 +273,176 @@ public record ImportStackResponse(
 );
 
 public record GetUpdateEventsResponse(
-    [property: JsonPropertyName("events")] JsonElement[] Events,
+    [property: JsonPropertyName("events")] EngineEvent[] Events,
     [property: JsonPropertyName("continuationToken")] string? ContinuationToken
+);
+
+public record UpdateViewInfo(
+    [property: JsonPropertyName("kind")] string? Kind,
+    [property: JsonPropertyName("status")] string? Status,
+    [property: JsonPropertyName("version")] int? Version,
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("startTime")] long? StartTime,
+    [property: JsonPropertyName("endTime")] long? EndTime,
+    [property: JsonPropertyName("updateID")] string? UpdateId
+);
+
+public record UpdateViewConfigEntry(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("value")] string Value,
+    [property: JsonPropertyName("secret")] bool Secret,
+    [property: JsonPropertyName("object")] bool Object
+);
+
+public record UpdateViewOutputEntry(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("oldValue")] string? OldValue,
+    [property: JsonPropertyName("newValue")] string? NewValue,
+    [property: JsonPropertyName("changed")] bool Changed
+);
+
+public record UpdateViewResourceEntry(
+    [property: JsonPropertyName("urn")] string? Urn,
+    [property: JsonPropertyName("parentUrn")] string? ParentUrn,
+    [property: JsonPropertyName("type")] string? Type,
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("operation")] string Operation,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("info")] string? Info,
+    [property: JsonPropertyName("isError")] bool IsError
+);
+
+public record UpdateViewSummary(
+    [property: JsonPropertyName("isPreview")] bool IsPreview,
+    [property: JsonPropertyName("maybeCorrupt")] bool MaybeCorrupt,
+    [property: JsonPropertyName("durationSeconds")] long? DurationSeconds,
+    [property: JsonPropertyName("resourceChanges")] Dictionary<string, int>? ResourceChanges
+);
+
+public record UpdateViewHeader(
+    [property: JsonPropertyName("kind")] string? Kind,
+    [property: JsonPropertyName("isPreview")] bool IsPreview,
+    [property: JsonPropertyName("kindLabel")] string KindLabel,
+    [property: JsonPropertyName("runLabel")] string RunLabel,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("startTime")] long? StartTime,
+    [property: JsonPropertyName("endTime")] long? EndTime,
+    [property: JsonPropertyName("resourceCount")] int? ResourceCount,
+    [property: JsonPropertyName("resourceChanges")] Dictionary<string, int>? ResourceChanges
+);
+
+public record UpdateViewHistoryEntry(
+    [property: JsonPropertyName("updateID")] string? UpdateId,
+    [property: JsonPropertyName("version")] int? Version,
+    [property: JsonPropertyName("kind")] string? Kind,
+    [property: JsonPropertyName("isPreview")] bool IsPreview,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("kindLabel")] string KindLabel,
+    [property: JsonPropertyName("runLabel")] string RunLabel,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("startTime")] long? StartTime,
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("routeRunType")] string? RouteRunType,
+    [property: JsonPropertyName("routeReference")] string? RouteReference,
+    [property: JsonPropertyName("isSelected")] bool IsSelected
+);
+
+public record StackPageMetadata(
+    [property: JsonPropertyName("version")] int Version,
+    [property: JsonPropertyName("activeUpdate")] string ActiveUpdate,
+    [property: JsonPropertyName("tags")] Dictionary<string, string>? Tags
+);
+
+public record StackOverviewResponse(
+    [property: JsonPropertyName("stack")] StackPageMetadata Stack,
+    [property: JsonPropertyName("latest")] UpdateViewHeader? Latest,
+    [property: JsonPropertyName("history")] UpdateViewHistoryEntry[] History
+);
+
+public record UpdateViewChangeConfigEntry(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("value")] string Value
+);
+
+public record UpdateViewChangeEntry(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("sequence")] long Sequence,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("isError")] bool IsError,
+    [property: JsonPropertyName("marker")] string? Marker = null,
+    [property: JsonPropertyName("channel")] string? Channel = null,
+    [property: JsonPropertyName("severity")] string? Severity = null,
+    [property: JsonPropertyName("resourceUrn")] string? ResourceUrn = null,
+    [property: JsonPropertyName("parentUrn")] string? ParentUrn = null,
+    [property: JsonPropertyName("resourceType")] string? ResourceType = null,
+    [property: JsonPropertyName("resourceName")] string? ResourceName = null,
+    [property: JsonPropertyName("operation")] string? Operation = null,
+    [property: JsonPropertyName("status")] string? Status = null,
+    [property: JsonPropertyName("info")] string? Info = null,
+    [property: JsonPropertyName("text")] string? Text = null,
+    [property: JsonPropertyName("summary")] string? Summary = null,
+    [property: JsonPropertyName("configEntries")] UpdateViewChangeConfigEntry[]? ConfigEntries = null,
+    [property: JsonPropertyName("rawPayloadJson")] string? RawPayloadJson = null
+);
+
+public record UpdateViewChanges(
+    [property: JsonPropertyName("hasEvents")] bool HasEvents,
+    [property: JsonPropertyName("messageCount")] int MessageCount,
+    [property: JsonPropertyName("summaryText")] string SummaryText,
+    [property: JsonPropertyName("diffText")] string DiffText,
+    [property: JsonPropertyName("diagnosticText")] string DiagnosticText,
+    [property: JsonPropertyName("entries")] UpdateViewChangeEntry[]? Entries = null,
+    [property: JsonPropertyName("deltaEntries")] UpdateViewChangeEntry[]? DeltaEntries = null,
+    [property: JsonPropertyName("summaryLines")] UpdateViewConsoleLine[]? SummaryLines = null,
+    [property: JsonPropertyName("diffLines")] UpdateViewConsoleLine[]? DiffLines = null,
+    [property: JsonPropertyName("diagnosticLines")] UpdateViewConsoleLine[]? DiagnosticLines = null,
+    [property: JsonPropertyName("summaryLineDeltas")] UpdateViewConsoleLineDelta[]? SummaryLineDeltas = null,
+    [property: JsonPropertyName("diffLineDeltas")] UpdateViewConsoleLineDelta[]? DiffLineDeltas = null,
+    [property: JsonPropertyName("diagnosticLineDeltas")] UpdateViewConsoleLineDelta[]? DiagnosticLineDeltas = null
+);
+
+public record UpdateViewConsoleLine(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("cssClass")] string CssClass,
+    [property: JsonPropertyName("segments")] UpdateViewConsoleSegment[] Segments
+);
+
+public record UpdateViewConsoleSegment(
+    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("cssClass")] string CssClass
+);
+
+public record UpdateViewConsoleLineDelta(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("line")] UpdateViewConsoleLine? Line
+);
+
+public record UpdateViewDelta(
+    [property: JsonPropertyName("isIncremental")] bool IsIncremental,
+    [property: JsonPropertyName("infoChanged")] bool InfoChanged,
+    [property: JsonPropertyName("changesChanged")] bool ChangesChanged,
+    [property: JsonPropertyName("configurationChanged")] bool ConfigurationChanged,
+    [property: JsonPropertyName("outputsChanged")] bool OutputsChanged,
+    [property: JsonPropertyName("resourcesChanged")] bool ResourcesChanged,
+    [property: JsonPropertyName("summaryChanged")] bool SummaryChanged
+);
+
+public record UpdateViewResponse(
+    [property: JsonPropertyName("stack")] StackPageMetadata Stack,
+    [property: JsonPropertyName("info")] UpdateViewInfo Info,
+    [property: JsonPropertyName("header")] UpdateViewHeader Header,
+    [property: JsonPropertyName("history")] UpdateViewHistoryEntry[] History,
+    [property: JsonPropertyName("configuration")] UpdateViewConfigEntry[] Configuration,
+    [property: JsonPropertyName("outputs")] UpdateViewOutputEntry[] Outputs,
+    [property: JsonPropertyName("resources")] UpdateViewResourceEntry[] Resources,
+    [property: JsonPropertyName("summary")] UpdateViewSummary? Summary,
+    [property: JsonPropertyName("changes")] UpdateViewChanges Changes,
+    [property: JsonPropertyName("continuationToken")] string? ContinuationToken = null,
+    [property: JsonPropertyName("delta")] UpdateViewDelta? Delta = null
 );
 
 public record EncryptValueRequest(

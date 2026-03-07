@@ -27,44 +27,33 @@ public sealed class PulumiApiClient(HttpClient httpClient)
         return response?.Stacks ?? [];
     }
 
-    public async Task<StackDetails?> GetStackAsync(string org, string project, string stack, CancellationToken cancellationToken)
+    public async Task<StackOverviewResponse?> GetStackOverviewAsync(string org, string project, string stack, CancellationToken cancellationToken)
     {
-        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}";
-        return await httpClient.GetFromJsonAsync<StackDetails>(path, JsonOptions, cancellationToken);
+        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/overview";
+        return await httpClient.GetFromJsonAsync<StackOverviewResponse>(path, JsonOptions, cancellationToken);
     }
 
-    public async Task<GetHistoryResponse?> GetStackUpdatesAsync(string org, string project, string stack, CancellationToken cancellationToken)
+    public async Task<SelectedUpdateReferenceResponse?> GetUpdateReferenceByVersionAsync(string org, string project, string stack, int version, CancellationToken cancellationToken)
     {
-        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/updates";
-        return await httpClient.GetFromJsonAsync<GetHistoryResponse>(path, JsonOptions, cancellationToken);
+        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/updates/{version}/reference";
+        return await httpClient.GetFromJsonAsync<SelectedUpdateReferenceResponse>(path, JsonOptions, cancellationToken);
     }
 
-    public async Task<LatestUpdateInfo?> GetLatestUpdateAsync(string org, string project, string stack, CancellationToken cancellationToken)
-    {
-        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/updates/latest";
-        return await httpClient.GetFromJsonAsync<LatestUpdateInfo>(path, JsonOptions, cancellationToken);
-    }
-
-    public async Task<UpdateResults?> GetUpdateResultsAsync(
+    public async Task<UpdateViewResponse?> GetUpdateViewAsync(
         string org,
         string project,
         string stack,
         string updateId,
+        string? continuationToken,
         CancellationToken cancellationToken)
     {
-        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/update/{Uri.EscapeDataString(updateId)}";
-        return await httpClient.GetFromJsonAsync<UpdateResults>(path, JsonOptions, cancellationToken);
-    }
+        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/update/{Uri.EscapeDataString(updateId)}/view";
+        if (!string.IsNullOrWhiteSpace(continuationToken))
+        {
+            path += $"?continuationToken={Uri.EscapeDataString(continuationToken)}";
+        }
 
-    public async Task<GetUpdateEventsResponse?> GetUpdateEventsAsync(
-        string org,
-        string project,
-        string stack,
-        string updateId,
-        CancellationToken cancellationToken)
-    {
-        var path = $"/api/stacks/{Uri.EscapeDataString(org)}/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/update/{Uri.EscapeDataString(updateId)}/events";
-        return await httpClient.GetFromJsonAsync<GetUpdateEventsResponse>(path, JsonOptions, cancellationToken);
+        return await httpClient.GetFromJsonAsync<UpdateViewResponse>(path, JsonOptions, cancellationToken);
     }
 
     public static void ConfigureHttpClient(HttpClient client, IConfiguration configuration)
@@ -79,14 +68,12 @@ public sealed class PulumiApiClient(HttpClient httpClient)
     public static string GetBrowserApiBaseUrl(IConfiguration configuration)
     {
         return configuration["PULUMI_API"] ??
-               configuration["PULUMI_API_INTERNAL_ENDPOINT"] ??
                "http://localhost:8080";
     }
 
     private static string GetApiBaseUrl(IConfiguration configuration)
     {
-        return configuration["PULUMI_API_INTERNAL_ENDPOINT"] ??
-               configuration["PULUMI_API"] ??
-               "http://localhost:8080";
+        return configuration["PULUMI_API_SERVICE"] ??
+               "http://api";
     }
 }

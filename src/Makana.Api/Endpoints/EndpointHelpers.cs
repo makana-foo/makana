@@ -1,15 +1,15 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Makana.Api.Security;
 using Makana.Api.Contracts;
+using Makana.Api.Security;
 using Makana.Api.Storage;
 
 namespace Makana.Api.Endpoints;
 
-internal static class EndpointHelpers
+internal sealed class EndpointHelpers
 {
-    public static async Task<IResult> CreateUpdateResponseAsync(
+    public async Task<IResult> CreateUpdateResponseAsync(
         BackendStore store,
         string org,
         string project,
@@ -30,7 +30,7 @@ internal static class EndpointHelpers
         return Results.Ok(new UpdateProgramResponse(updateId, null, null, null));
     }
 
-    public static async Task<IResult> CreateUpdateResponseByNamespaceIdAsync(
+    public async Task<IResult> CreateUpdateResponseByNamespaceIdAsync(
         BackendStore store,
         string namespaceId,
         string project,
@@ -51,12 +51,12 @@ internal static class EndpointHelpers
         return Results.Ok(new UpdateProgramResponse(updateId, null, null, null));
     }
 
-    public static string GetBaseUrl(HttpRequest request)
+    public string GetBaseUrl(HttpRequest request)
     {
         return $"{request.Scheme}://{request.Host}";
     }
 
-    public static async Task<StackSummary[]> BuildStackSummariesAsync(
+    public async Task<StackSummary[]> BuildStackSummariesAsync(
         BackendStore store,
         HttpRequest request,
         IEnumerable<(string StackId, string Name, string OrgName, string ProjectName, string? LastUpdate, string? TagsJson)> rows)
@@ -84,7 +84,7 @@ internal static class EndpointHelpers
         return list.ToArray();
     }
 
-    public static async Task<int?> GetResourceCountAsync(BackendStore store, string stackId)
+    public async Task<int?> GetResourceCountAsync(BackendStore store, string stackId)
     {
         var deployment = await store.GetLatestDeploymentAsync(stackId);
         if (deployment is null)
@@ -109,7 +109,7 @@ internal static class EndpointHelpers
         return null;
     }
 
-    public static long? ToUnixTimeSeconds(string? value)
+    public long? ToUnixTimeSeconds(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -124,7 +124,7 @@ internal static class EndpointHelpers
         return null;
     }
 
-    public static string NormalizeUpdateStatus(string status)
+    public string NormalizeUpdateStatus(string status)
     {
         return status switch
         {
@@ -134,7 +134,80 @@ internal static class EndpointHelpers
         };
     }
 
-    public static Dictionary<string, StackConfigValue>? ExtractConfig(string? programRequestJson)
+    public StackPageMetadata BuildStackPageMetadata((string? TagsJson, string ActiveUpdate, int Version)? metadata)
+    {
+        Dictionary<string, string>? tags = null;
+        if (!string.IsNullOrWhiteSpace(metadata?.TagsJson))
+        {
+            tags = JsonSerializer.Deserialize(
+                metadata.Value.TagsJson,
+                StackEndpointsJsonContext.Default.DictionaryStringString);
+        }
+
+        return new StackPageMetadata(
+            metadata?.Version ?? 0,
+            metadata?.ActiveUpdate ?? string.Empty,
+            tags);
+    }
+
+    public string FormatUpdateKindLabel(string? kind, bool isPreview)
+    {
+        var baseLabel = FormatKindLabel(kind);
+        if (!isPreview)
+        {
+            return baseLabel;
+        }
+
+        return string.Equals(baseLabel, "Preview", StringComparison.Ordinal)
+            ? "Preview"
+            : $"{baseLabel} (Preview)";
+    }
+
+    public string FormatUpdateRunLabel(string? kind, bool isPreview, int? version)
+    {
+        var kindLabel = FormatUpdateKindLabel(kind, isPreview);
+        return !isPreview && version is > 0
+            ? $"{kindLabel} #{version}"
+            : kindLabel;
+    }
+
+    public string FormatUpdateHistoryTitle(int? version)
+        => version is > 0 ? $"Update #{version}" : "Update";
+
+    public string? GetUpdateRouteRunType(string? kind, bool isPreview)
+        => isPreview
+            ? "previews"
+            : (kind ?? string.Empty).ToLowerInvariant() switch
+            {
+                "destroy" => "destroys",
+                "refresh" => "refreshes",
+                _ => "updates"
+            };
+
+    public string? GetUpdateRouteReference(string? updateId, int? version, string? kind, bool isPreview)
+    {
+        var runType = GetUpdateRouteRunType(kind, isPreview);
+        return string.Equals(runType, "previews", StringComparison.Ordinal)
+            ? updateId
+            : (version is > 0 ? version.Value.ToString() : null);
+    }
+
+    public bool IsPreviewProgramRequest(string? programRequestJson)
+        => TryGetProgramRequestDryRun(programRequestJson) == true;
+
+    public bool IsPreviewOperation(string? kind, string? programRequestJson, bool? eventDerivedPreview = null)
+    {
+        var dryRun = TryGetProgramRequestDryRun(programRequestJson);
+        if (dryRun.HasValue)
+        {
+            return dryRun.Value;
+        }
+
+        return eventDerivedPreview == true ||
+               string.Equals(kind, "preview", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public Dictionary<string, StackConfigValue>? ExtractConfig(string? programRequestJson)
     {
         if (string.IsNullOrWhiteSpace(programRequestJson))
         {
@@ -159,7 +232,7 @@ internal static class EndpointHelpers
         }
     }
 
-    public static (string? Message, Dictionary<string, string>? Environment) ExtractMetadata(string? programRequestJson)
+    public (string? Message, Dictionary<string, string>? Environment) ExtractMetadata(string? programRequestJson)
     {
         if (string.IsNullOrWhiteSpace(programRequestJson))
         {
@@ -197,7 +270,7 @@ internal static class EndpointHelpers
         }
     }
 
-    public static string ExtractSecretPlaintext(JsonElement request)
+    public string ExtractSecretPlaintext(JsonElement request)
     {
         if (request.ValueKind == JsonValueKind.String)
         {
@@ -220,14 +293,27 @@ internal static class EndpointHelpers
         return string.Empty;
     }
 
-    public static async Task SaveUploadAsync(BackendStore store, HttpRequest request, string path)
+    private static string FormatKindLabel(string? kind)
+        => (kind ?? string.Empty).ToLowerInvariant() switch
+        {
+            "preview" => "Preview",
+            "update" => "Update",
+            "import" => "Import",
+            "refresh" => "Refresh",
+            "destroy" => "Destroy",
+            "rename" => "Rename",
+            "" => "Update",
+            var other => char.ToUpperInvariant(other[0]) + other[1..]
+        };
+
+    public async Task SaveUploadAsync(BackendStore store, HttpRequest request, string path)
     {
         await using var stream = new MemoryStream();
         await request.Body.CopyToAsync(stream);
         await store.SaveUploadAsync(path, request.ContentType, stream.ToArray());
     }
 
-    public static string? GetUpdateToken(HttpContext context)
+    public string? GetUpdateToken(HttpContext context)
     {
         var kind = context.User.FindFirst(PulumiAuthenticationDefaults.AuthKindClaim)?.Value
             ?? context.Items["auth.kind"] as string;
@@ -239,7 +325,7 @@ internal static class EndpointHelpers
         return null;
     }
 
-    public static byte[] Encrypt(byte[] key, byte[] plaintext)
+    public byte[] Encrypt(byte[] key, byte[] plaintext)
     {
         var nonce = RandomNumberGenerator.GetBytes(12);
         var cipher = new byte[plaintext.Length];
@@ -255,7 +341,7 @@ internal static class EndpointHelpers
         return output;
     }
 
-    public static byte[] Decrypt(byte[] key, byte[] ciphertext)
+    public byte[] Decrypt(byte[] key, byte[] ciphertext)
     {
         if (ciphertext.Length < 28)
         {
@@ -276,7 +362,7 @@ internal static class EndpointHelpers
         return plaintext;
     }
 
-    public static string CreateEmptyDeploymentJson()
+    public string CreateEmptyDeploymentJson()
     {
         var timestamp = DateTimeOffset.UtcNow.ToString("O");
         const string version = "0.0.0";
@@ -284,7 +370,7 @@ internal static class EndpointHelpers
         return $"{{\"manifest\":{{\"time\":\"{timestamp}\",\"magic\":\"{magic}\",\"version\":\"{version}\"}},\"resources\":[],\"pending_operations\":[]}}";
     }
 
-    public static string CreateEmptyDeploymentJson(string? baseDeploymentJson)
+    public string CreateEmptyDeploymentJson(string? baseDeploymentJson)
     {
         if (string.IsNullOrWhiteSpace(baseDeploymentJson))
         {
@@ -309,7 +395,7 @@ internal static class EndpointHelpers
         }
     }
 
-    public static CapabilitiesResponse GetCapabilitiesResponse()
+    public CapabilitiesResponse GetCapabilitiesResponse()
     {
         var deploymentConfig = JsonDocument.Parse("{\"version\":4}").RootElement.Clone();
         return new CapabilitiesResponse(new[]
@@ -319,7 +405,7 @@ internal static class EndpointHelpers
         });
     }
 
-    public static bool TryApplyTextEdits(string source, JsonElement editsElement, out string result)
+    public bool TryApplyTextEdits(string source, JsonElement editsElement, out string result)
     {
         result = source;
         if (editsElement.ValueKind != JsonValueKind.Array)
@@ -447,6 +533,36 @@ internal static class EndpointHelpers
 
         offset = LineColumnToOffset(source, line, column);
         return offset >= 0;
+    }
+
+    private static bool? TryGetProgramRequestDryRun(string? programRequestJson)
+    {
+        if (string.IsNullOrWhiteSpace(programRequestJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(programRequestJson);
+            if (!doc.RootElement.TryGetProperty("options", out var optionsElement) ||
+                optionsElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (optionsElement.TryGetProperty("dryRun", out var dryRunElement) &&
+                dryRunElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                return dryRunElement.GetBoolean();
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     private static bool TryGetLineColumn(JsonElement point, out int line, out int column)

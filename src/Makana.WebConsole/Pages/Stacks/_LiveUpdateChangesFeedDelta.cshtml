@@ -1,0 +1,18 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (Model.DeltaChangeFeedEntries.Count > 0)
+{
+    <div id="live-update-changes-feed-empty" hx-swap-oob="delete"></div>
+}
+
+@foreach (var entry in Model.DeltaChangeFeedEntries)
+{
+    if (entry.Action.Equals("append", System.StringComparison.OrdinalIgnoreCase))
+    {
+        <partial name="_LiveUpdateChangesFeedDeltaEntryAppend" model="entry" />
+    }
+    else
+    {
+        <partial name="_LiveUpdateChangesFeedDeltaEntryUpsert" model="entry" />
+    }
+}

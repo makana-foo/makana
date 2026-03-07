@@ -55,7 +55,20 @@ else
                 <div class="hstack">
                     @if (User.Identity?.IsAuthenticated == true)
                     {
-                        <small class="text-light">@(User.Identity.Name ?? "signed-in")</small>
+                        var displayName = navContext.User?.Name
+                            ?? navContext.User?.GitHubLogin
+                            ?? User.Identity.Name
+                            ?? "signed-in";
+                        var avatarPath = ConsoleAvatarPaths.ForUser(navContext.User);
+                        if (!string.IsNullOrWhiteSpace(avatarPath))
+                        {
+                            <component type="typeof(ConsoleUserAvatar)"
+                                       render-mode="Static"
+                                       param-AvatarPath="avatarPath"
+                                       param-AltText="@($"Avatar for {displayName}")"
+                                       param-Size="28" />
+                        }
+                        <small class="text-light">@displayName</small>
                         <form method="post" asp-page="/Login" asp-page-handler="SignOut">
                             <button type="submit" class="outline small">Logout</button>
                         </form>

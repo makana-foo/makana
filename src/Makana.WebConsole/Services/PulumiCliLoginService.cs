@@ -43,9 +43,8 @@ public sealed class PulumiCliLoginService(HttpClient httpClient, ILogger<PulumiC
     public static void ConfigureHttpClient(HttpClient client, IConfiguration configuration)
     {
         var baseUrl =
-            configuration["PULUMI_API_INTERNAL_ENDPOINT"] ??
-            configuration["PULUMI_API"] ??
-            "http://localhost:8080";
+            configuration["PULUMI_API_SERVICE"] ??
+            "http://api";
 
         client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     }

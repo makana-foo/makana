@@ -25,7 +25,7 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
             .Select(group =>
             {
                 var updatedTimes = group
-                    .Select(stack => ToDateTimeOffset(stack.LastUpdate))
+                    .Select(stack => WebConsoleDisplayFormatter.ToDateTimeOffset(stack.LastUpdate))
                     .Where(update => update.HasValue)
                     .Select(update => update!.Value)
                     .ToArray();
@@ -48,15 +48,4 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
             .Select(stack => stack.Tags is not null && stack.Tags.TryGetValue(key, out var value) ? value : null)
             .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
-    private static DateTimeOffset? ToDateTimeOffset(long? unixTimestamp)
-    {
-        if (!unixTimestamp.HasValue || unixTimestamp.Value <= 0)
-        {
-            return null;
-        }
-
-        return unixTimestamp.Value > 1000000000000
-            ? DateTimeOffset.FromUnixTimeMilliseconds(unixTimestamp.Value)
-            : DateTimeOffset.FromUnixTimeSeconds(unixTimestamp.Value);
-    }
 }

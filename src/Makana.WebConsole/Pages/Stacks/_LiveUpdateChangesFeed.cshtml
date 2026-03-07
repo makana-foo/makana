@@ -1,0 +1,22 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+<section class="stack-change-feed" aria-live="polite">
+    <header class="stack-change-feed__header">
+        <h4>Recent activity</h4>
+        <p class="text-light">Incremental update rows materialized from the backend-owned update view.</p>
+    </header>
+
+    <div id="live-update-changes-feed-entries" class="stack-change-feed__entries">
+        @if (Model.ChangeFeedEntries.Count == 0)
+        {
+            <p id="live-update-changes-feed-empty" class="stack-change-feed__empty">No change entries yet.</p>
+        }
+        else
+        {
+            @foreach (var entry in Model.ChangeFeedEntries)
+            {
+                <partial name="_LiveUpdateChangesFeedEntry" model="entry" />
+            }
+        }
+    </div>
+</section>

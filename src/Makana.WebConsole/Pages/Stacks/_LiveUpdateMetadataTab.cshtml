@@ -1,0 +1,71 @@
+@using Makana.WebConsole.Models
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (!string.IsNullOrWhiteSpace(Model.DisplayKind) || Model.DisplayVersion is not null || !string.IsNullOrWhiteSpace(Model.DisplayMessage))
+{
+    <div class="row mt-4">
+        <div class="col-4">
+            <label data-field>
+                Kind
+                <input type="text" value="@Model.DisplayKindLabel" readonly />
+            </label>
+        </div>
+        <div class="col-4">
+            <label data-field>
+                Version
+                <input type="text" value="@(Model.DisplayVersion?.ToString() ?? "n/a")" readonly />
+            </label>
+        </div>
+        <div class="col-4">
+            <label data-field>
+                Message
+                <input type="text" value="@(Model.DisplayMessage ?? "n/a")" readonly />
+            </label>
+        </div>
+    </div>
+}
+
+@if (Model.DisplayStartTime is not null || Model.DisplayEndTime is not null || Model.DisplayResourceCount is not null || Model.UpdateView?.Summary is not null)
+{
+    <div class="row mt-4">
+        <div class="col-4">
+            <label data-field>
+                Preview
+                <input type="text" value="@(Model.IsPreview ? "Yes" : "No")" readonly />
+            </label>
+        </div>
+        <div class="col-4">
+            <label data-field>
+                Resource count
+                <input type="text" value="@(Model.DisplayResourceCount?.ToString() ?? "n/a")" readonly />
+            </label>
+        </div>
+        <div class="col-4">
+            <label data-field>
+                Result
+                <input type="text" value="@Model.StatusText" readonly />
+            </label>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-4">
+            <label data-field>
+                Started
+                <input type="text" value="@Model.DisplayStartedExactText" readonly />
+            </label>
+        </div>
+        <div class="col-4">
+            <label data-field>
+                Completed
+                <input type="text" value="@Model.DisplayCompletedExactText" readonly />
+            </label>
+        </div>
+        <div class="col-4">
+            <label data-field>
+                Maybe corrupt
+                <input type="text" value="@((Model.UpdateView?.Summary?.MaybeCorrupt == true) ? "Yes" : "No")" readonly />
+            </label>
+        </div>
+    </div>
+}

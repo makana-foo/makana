@@ -10,7 +10,7 @@ internal static class CliLoginEndpoints
     public static IEndpointRouteBuilder MapCliLoginEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/cli-login", HandleCliLoginAsync).AllowAnonymous();
-        app.MapGet("/{owner}/{project}/{stack}/{runType}/{updateId}", HandleStackRunRedirect)
+        app.MapGet("/{owner}/{project}/{stack}/{runType}/{updateRef}", HandleStackRunRedirect)
             .RequireAuthorization();
 
         return app;
@@ -21,6 +21,11 @@ internal static class CliLoginEndpoints
         [AsParameters] CliLoginQuery query,
         PulumiCliLoginService cliLoginService)
     {
+        if (query is not { CliSessionPort: > 0, CliSessionNonce: { Length: > 0 } })
+        {
+            return Results.BadRequest();
+        }
+
         if (context is not { User.Identity.IsAuthenticated: true })
         {
             return BuildCliLoginChallenge(context);
@@ -38,7 +43,7 @@ internal static class CliLoginEndpoints
             return BuildCliLoginChallenge(context);
         }
 
-        var callbackUri = $"http://127.0.0.1:{query.CliSessionPort}/?accessToken={UrlEncoder.Default.Encode(accessToken)}&nonce={UrlEncoder.Default.Encode(query.CliSessionNonce)}";
+        var callbackUri = $"http://127.0.0.1:{query.CliSessionPort.Value}/?accessToken={UrlEncoder.Default.Encode(accessToken)}&nonce={UrlEncoder.Default.Encode(query.CliSessionNonce)}";
 
         return Results.Redirect(callbackUri);
     }
@@ -55,14 +60,14 @@ internal static class CliLoginEndpoints
         string project,
         string stack,
         string runType,
-        string updateId)
+        string updateRef)
     {
         if (!IsSupportedRunType(runType))
         {
             return Results.NotFound();
         }
 
-        var target = $"/{Uri.EscapeDataString(owner)}/stacks/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}?updateId={Uri.EscapeDataString(updateId)}&view={Uri.EscapeDataString(runType)}";
+        var target = $"/{Uri.EscapeDataString(owner)}/stacks/{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(stack)}/{Uri.EscapeDataString(runType)}/{Uri.EscapeDataString(updateRef)}";
         return Results.Redirect(target, permanent: false);
     }
 
@@ -72,4 +77,4 @@ internal static class CliLoginEndpoints
     }
 }
 
-internal sealed record CliLoginQuery(int CliSessionPort, string CliSessionNonce, string? CliSessionDescription);
+internal sealed record CliLoginQuery(int? CliSessionPort, string? CliSessionNonce, string? CliSessionDescription);

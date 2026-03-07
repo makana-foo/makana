@@ -6,11 +6,11 @@ using Makana.Api.Realtime;
 using Makana.Api.Security;
 using Makana.Api.Storage;
 using Makana.Api.Updates;
+using Makana.StackUpdates.Pulumi;
+using Makana.StackUpdates.Services;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization.Policy;
-// codex resume 019b8fe8-0185-74c3-94c9-e00eb91dc755
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
@@ -26,6 +26,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(RegistryEndpointsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(ConsoleEndpointsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(SecurityJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(PulumiEngineEventJsonContext.Default);
 });
 
 var dbPath = Environment.GetEnvironmentVariable("DOTNET_API_DB");
@@ -41,6 +42,17 @@ if (!string.IsNullOrWhiteSpace(dbDirectory))
 
 builder.Services.AddSingleton(new Database($"Data Source={dbPath}"));
 builder.Services.AddSingleton<BackendStore>();
+builder.Services.AddSingleton<EndpointHelpers>();
+builder.Services.AddSingleton<NamespaceRoutingHelpers>();
+builder.Services.AddSingleton<ImportUpdateEventFactory>();
+builder.Services.AddSingleton<UpdateProjectionReducer>();
+builder.Services.AddSingleton<StackUpdateTranscriptMapper>();
+builder.Services.AddSingleton<StackTranscriptDeltaBuilder>();
+builder.Services.AddSingleton<StackConsoleDeltaBuilder>();
+builder.Services.AddSingleton<UpdateProjectionStateCache>();
+builder.Services.AddSingleton<UpdateViewMaterializer>();
+builder.Services.AddSingleton<StackOverviewMaterializer>();
+builder.Services.AddSingleton<VersionedUpdatePageMaterializer>();
 builder.Services.AddSingleton<IUpdateCheckpointJournalingProvider, ConformantJournalingUpdateProvider>();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient();

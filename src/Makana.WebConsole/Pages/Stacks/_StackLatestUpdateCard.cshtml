@@ -1,0 +1,39 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+
+@if (Model.LatestUpdateHistoryEntry is { } latestUpdate)
+{
+    <article class="card" id="stack-latest-update-card">
+        <header>
+            <div class="hstack justify-between items-center">
+                <div>
+                    <h3>Latest update</h3>
+                    <p class="text-light">Most recent activity for this stack.</p>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(latestUpdate.Href))
+                {
+                    <a class="button outline small" href="@latestUpdate.Href">Open details</a>
+                }
+            </div>
+        </header>
+
+        <div class="vstack gap-1">
+            <p><strong>@latestUpdate.Title</strong></p>
+            <p class="text-light">
+                <span>@latestUpdate.KindLabel</span>
+                <span> · </span>
+                <span>@latestUpdate.StatusText</span>
+                @if (Model.IsInProgress)
+                {
+                    <span aria-busy="true" data-spinner="small" class="stack-status-spinner" aria-label="Update in progress"></span>
+                }
+                @if (Model.DisplayResourceCount is { } resourceCount)
+                {
+                    <span> · </span>
+                    <span>@resourceCount resource@(resourceCount == 1 ? string.Empty : "s")</span>
+                }
+                <span> · </span>
+                <time title="@latestUpdate.StartedExactText">@latestUpdate.StartedRelativeText</time>
+            </p>
+        </div>
+    </article>
+}

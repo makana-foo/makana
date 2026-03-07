@@ -4,6 +4,8 @@ using System.Text.Json;
 using Makana.Api.Contracts;
 using Makana.Api.Security;
 using Makana.Api.Storage;
+using Makana.Api.Updates;
+using Makana.StackUpdates.Pulumi;
 
 namespace Makana.Api.Endpoints;
 
@@ -13,22 +15,22 @@ internal static class StackEndpoints
     [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapStackEndpoints(this IEndpointRouteBuilder app, BackendStore store, byte[] secretKey)
     {
-        app.MapGet("/api/stacks/{org}", async (HttpContext context, HttpRequest request, string org) =>
+        app.MapGet("/api/stacks/{org}", async (HttpContext context, HttpRequest request, string org, EndpointHelpers endpointHelpers, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
         {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, store, org);
+            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
             if (namespaceResolution.Failure is not null)
             {
                 return namespaceResolution.Failure;
             }
 
             var rows = await store.ListStacksByNamespaceIdsAsync(null, new[] { namespaceResolution.NamespaceId! });
-            var stacks = await EndpointHelpers.BuildStackSummariesAsync(store, request, rows);
+            var stacks = await endpointHelpers.BuildStackSummariesAsync(store, request, rows);
             return Results.Ok(new ListStacksResponse(stacks, null));
         }).RequireAuthorization();
 
-        app.MapMethods("/api/stacks/{org}/{project}", new[] { "HEAD" }, async (HttpContext context, string org, string project) =>
+        app.MapMethods("/api/stacks/{org}/{project}", new[] { "HEAD" }, async (HttpContext context, string org, string project, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
         {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, store, org);
+            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
             if (namespaceResolution.Failure is not null)
             {
                 return namespaceResolution.Failure;
@@ -38,11 +40,11 @@ internal static class StackEndpoints
             return exists ? Results.Ok() : Results.NotFound();
         }).RequireAuthorization();
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}", async (HttpContext context, string org, string project, string stack) =>
+        app.MapGet("/api/stacks/{org}/{project}/{stack}", async (HttpContext context, string org, string project, string stack, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
         {
             var decodedProject = Uri.UnescapeDataString(project);
             var decodedStack = Uri.UnescapeDataString(stack);
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, store, org);
+            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
             if (namespaceResolution.Failure is not null)
             {
                 return namespaceResolution.Failure;
@@ -81,9 +83,9 @@ internal static class StackEndpoints
             return Results.Ok(result);
         }).RequireAuthorization();
 
-        app.MapPost("/api/stacks/{org}/{project}", async (HttpContext context, string org, string project, CreateStackRequest request) =>
+        app.MapPost("/api/stacks/{org}/{project}", async (HttpContext context, string org, string project, CreateStackRequest request, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
         {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, store, org);
+            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
             if (namespaceResolution.Failure is not null)
             {
                 return namespaceResolution.Failure;
@@ -108,9 +110,14 @@ internal static class StackEndpoints
             return Results.Ok();
         }).RequireAuthorization();
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/rename", async (string org, string project, string stack, StackRenameRequest request) =>
+        app.MapPost("/api/stacks/{org}/{project}/{stack}/rename", async (
+            string org,
+            string project,
+            string stack,
+            StackRenameRequest request,
+            CancellationToken cancellationToken) =>
         {
-            await store.RenameStackAsync(org, project, stack, request.NewName, request.NewProject);
+            await store.RenameStackAsync(org, project, stack, request.NewName, request.NewProject, cancellationToken);
             return Results.Ok();
         }).RequireAuthorization("OrgRouteAccess");
 
@@ -188,7 +195,7 @@ internal static class StackEndpoints
             return Results.Ok(new LogsResult(Array.Empty<LogEntry>()));
         }).RequireAuthorization("OrgRouteAccess");
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/export", async (string org, string project, string stack) =>
+        app.MapGet("/api/stacks/{org}/{project}/{stack}/export", async (string org, string project, string stack, EndpointHelpers endpointHelpers) =>
         {
             var ids = await store.GetStackIdsAsync(org, project, stack);
             if (ids is null)
@@ -199,7 +206,7 @@ internal static class StackEndpoints
             var deployment = await store.GetLatestDeploymentAsync(ids.Value.StackId);
             if (deployment is null)
             {
-                var emptyDeployment = JsonDocument.Parse(EndpointHelpers.CreateEmptyDeploymentJson()).RootElement;
+                var emptyDeployment = JsonDocument.Parse(endpointHelpers.CreateEmptyDeploymentJson()).RootElement;
                 return Results.Ok(new ExportStackResponse(3, null, emptyDeployment));
             }
 
@@ -231,7 +238,7 @@ internal static class StackEndpoints
             return Results.Ok(payload);
         }).RequireAuthorization("OrgRouteAccess");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/import", async (string org, string project, string stack, UntypedDeployment deployment) =>
+        app.MapPost("/api/stacks/{org}/{project}/{stack}/import", async (string org, string project, string stack, UntypedDeployment deployment, ImportUpdateEventFactory importUpdateEventFactory, CancellationToken cancellationToken) =>
         {
             var ids = await store.GetStackIdsAsync(org, project, stack);
             if (ids is null)
@@ -241,17 +248,22 @@ internal static class StackEndpoints
 
             var updateId = await store.CreateUpdateAsync(ids.Value.StackId, "import", deployment.Deployment.GetRawText());
             var version = await store.GetNextStackVersionAsync(ids.Value.StackId);
-            await store.SaveCheckpointAsync(updateId, deployment.Deployment.GetRawText(), version);
-            await store.CompleteUpdateAsync(updateId, "succeeded");
+            await store.SaveCheckpointAsync(updateId, deployment.Deployment.GetRawText(), version, cancellationToken);
+            var events = importUpdateEventFactory.CreateEvents(deployment.Deployment);
+            await store.RecordEventsAsync(
+                updateId,
+                events.Select(static ev => JsonSerializer.Serialize(ev, PulumiEngineEventJsonContext.Default.EngineEvent)),
+                cancellationToken);
+            await store.CompleteUpdateAsync(updateId, "succeeded", version, cancellationToken);
             return Results.Ok(new ImportStackResponse(updateId));
         }).RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/encrypt",
-            (EncryptValueRequest request) => Results.Ok(new EncryptValueResponse(EndpointHelpers.Encrypt(secretKey, request.Plaintext))))
+            (EncryptValueRequest request, EndpointHelpers endpointHelpers) => Results.Ok(new EncryptValueResponse(endpointHelpers.Encrypt(secretKey, request.Plaintext))))
             .RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/decrypt",
-            (DecryptValueRequest request) => Results.Ok(new DecryptValueResponse(EndpointHelpers.Decrypt(secretKey, request.Ciphertext))))
+            (DecryptValueRequest request, EndpointHelpers endpointHelpers) => Results.Ok(new DecryptValueResponse(endpointHelpers.Decrypt(secretKey, request.Ciphertext))))
             .RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/decrypt/log-decryption",
@@ -263,15 +275,15 @@ internal static class StackEndpoints
             .RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/batch-encrypt",
-            (BatchEncryptRequest request) =>
+            (BatchEncryptRequest request, EndpointHelpers endpointHelpers) =>
             {
-                var cipher = request.Plaintexts.Select(p => EndpointHelpers.Encrypt(secretKey, p)).ToArray();
+                var cipher = request.Plaintexts.Select(p => endpointHelpers.Encrypt(secretKey, p)).ToArray();
                 return Results.Ok(new BatchEncryptResponse(cipher));
             })
             .RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/batch-decrypt",
-            (JsonElement request) =>
+            (JsonElement request, EndpointHelpers endpointHelpers) =>
             {
                 if (!request.TryGetProperty("ciphertexts", out var ciphertextsElement) ||
                     ciphertextsElement.ValueKind != JsonValueKind.Array)
@@ -300,7 +312,7 @@ internal static class StackEndpoints
 
                     try
                     {
-                        plaintexts[cipherText] = EndpointHelpers.Decrypt(secretKey, cipherBytes);
+                        plaintexts[cipherText] = endpointHelpers.Decrypt(secretKey, cipherBytes);
                     }
                     catch (CryptographicException)
                     {
@@ -316,7 +328,9 @@ internal static class StackEndpoints
     }
 
     private static async Task<(string? NamespaceId, IResult? Failure)> ResolveNamespaceIdForRouteAsync(
-        HttpContext context, BackendStore store, string org)
+        HttpContext context,
+        NamespaceRoutingHelpers namespaceRoutingHelpers,
+        string org)
     {
         var userId = context.User.FindFirst(PulumiAuthenticationDefaults.UserIdClaim)?.Value
             ?? context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -326,8 +340,7 @@ internal static class StackEndpoints
         }
 
         var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
-        var namespaceId = await NamespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
-            store,
+        var namespaceId = await namespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
             userId,
             org,
             tokenOrgId);

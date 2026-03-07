@@ -30,7 +30,7 @@ internal static class CoreEndpoints
             return Results.Ok(resolved.Value.User);
         });
 
-        app.MapGet("/api/user/stacks", async (HttpContext context, HttpRequest request, [FromQuery] string? project, [FromQuery(Name = "organization")] string? organization) =>
+        app.MapGet("/api/user/stacks", async (HttpContext context, HttpRequest request, [FromQuery] string? project, [FromQuery(Name = "organization")] string? organization, EndpointHelpers endpointHelpers) =>
         {
             var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
@@ -60,14 +60,14 @@ internal static class CoreEndpoints
                     ? null
                     : JsonSerializer.Deserialize(row.TagsJson, EndpointHelpersJsonContext.Default.DictionaryStringString);
                 var lastUpdate = await store.GetLatestUpdateTimeAsync(row.StackId);
-                var resourceCount = await EndpointHelpers.GetResourceCountAsync(store, row.StackId);
-                var link = new StackLinks($"{EndpointHelpers.GetBaseUrl(request)}/stacks/{displayOrg}/{row.ProjectName}/{row.Name}");
+                var resourceCount = await endpointHelpers.GetResourceCountAsync(store, row.StackId);
+                var link = new StackLinks($"{endpointHelpers.GetBaseUrl(request)}/stacks/{displayOrg}/{row.ProjectName}/{row.Name}");
                 stacks.Add(new StackSummary(
                     $"{displayOrg}/{row.ProjectName}/{row.Name}",
                     row.Name,
                     row.ProjectName,
                     displayOrg,
-                    EndpointHelpers.ToUnixTimeSeconds(lastUpdate),
+                    endpointHelpers.ToUnixTimeSeconds(lastUpdate),
                     resourceCount,
                     link,
                     tags));
@@ -157,7 +157,7 @@ internal static class CoreEndpoints
         app.MapPost("/api/ai/template", () => Results.NoContent());
         app.MapPost("/api/ai/chat/preview", () => Results.NoContent());
 
-        app.MapGet("/api/capabilities", () => Results.Ok(EndpointHelpers.GetCapabilitiesResponse()));
+        app.MapGet("/api/capabilities", (EndpointHelpers endpointHelpers) => Results.Ok(endpointHelpers.GetCapabilitiesResponse()));
 
         return app;
     }
