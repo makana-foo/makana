@@ -15,7 +15,14 @@ internal static class JwtBearerConfiguration
         string audience,
         string providerKey)
     {
-        ConfigureCommon(options, authority, metadataAddress, audience, providerKey);
+        ConfigureCommon(
+            options,
+            authority,
+            metadataAddress,
+            audience,
+            providerKey,
+            expectedTokenType: "oauth-access-token");
+        options.UseSignalRQueryStringAccessToken("/hubs/stack-updates");
     }
 
     public static void ConfigureSubjectTokenBearer(
@@ -25,27 +32,14 @@ internal static class JwtBearerConfiguration
         string audience,
         string providerKey)
     {
-        ConfigureCommon(options, authority, metadataAddress, audience, providerKey);
-
-        options.Events.OnMessageReceived = async context =>
-        {
-            if (!context.Request.Path.Equals("/api/oauth/token", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            if (!context.Request.HasFormContentType)
-            {
-                return;
-            }
-
-            var form = await context.Request.ReadFormAsync(context.HttpContext.RequestAborted);
-            var subjectToken = form["subject_token"].ToString();
-            if (!string.IsNullOrWhiteSpace(subjectToken))
-            {
-                context.Token = subjectToken;
-            }
-        };
+        ConfigureCommon(
+            options,
+            authority,
+            metadataAddress,
+            audience,
+            providerKey,
+            expectedTokenType: "id-token");
+        options.UseFormSubjectToken("/api/oauth/token");
     }
 
     private static void ConfigureCommon(
@@ -53,7 +47,8 @@ internal static class JwtBearerConfiguration
         string authority,
         string? metadataAddress,
         string audience,
-        string providerKey)
+        string providerKey,
+        string expectedTokenType)
     {
         options.Authority = authority.TrimEnd('/');
         if (!string.IsNullOrWhiteSpace(metadataAddress))
@@ -81,6 +76,13 @@ internal static class JwtBearerConfiguration
                     return;
                 }
 
+                var actualTokenType = identity.FindFirst("type")?.Value;
+                if (!string.Equals(actualTokenType, expectedTokenType, StringComparison.Ordinal))
+                {
+                    context.Fail($"Token type '{actualTokenType ?? "<missing>"}' is not valid for this endpoint.");
+                    return;
+                }
+
                 if (!identity.HasClaim(c => c.Type == PulumiAuthenticationDefaults.AuthKindClaim))
                 {
                     identity.AddClaim(new Claim(PulumiAuthenticationDefaults.AuthKindClaim, "bearer"));
@@ -96,8 +98,8 @@ internal static class JwtBearerConfiguration
                 var login = OidcClaimHelpers.ResolveLogin(context.Principal);
                 if (!string.IsNullOrWhiteSpace(login))
                 {
-                    var store = context.HttpContext.RequestServices.GetRequiredService<BackendStore>();
-                    var existingUserId = await store.GetUserIdByLoginAsync(login);
+                    var identityRepository = context.HttpContext.RequestServices.GetRequiredService<IdentityRepository>();
+                    var existingUserId = identityRepository.GetUserIdByLogin(login);
                     if (!string.IsNullOrWhiteSpace(existingUserId))
                     {
                         resolvedUserId = existingUserId;

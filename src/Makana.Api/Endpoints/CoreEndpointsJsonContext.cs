@@ -5,6 +5,7 @@ namespace Makana.Api.Endpoints;
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(ServiceUser))]
+[JsonSerializable(typeof(UpdateUserThemeRequest))]
 [JsonSerializable(typeof(ListStacksResponse))]
 [JsonSerializable(typeof(GetDefaultOrganizationResponse))]
 [JsonSerializable(typeof(CliVersionResponse))]

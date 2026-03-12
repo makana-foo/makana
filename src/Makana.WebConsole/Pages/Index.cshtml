@@ -4,46 +4,44 @@
 @{
     ViewData["Title"] = "Dashboard";
     ViewData["NavSection"] = "Dashboard";
+    var pageHeader = new ConsolePageHeaderViewModel(
+        "Dashboard",
+        $"Overview for {Model.Owner}.");
 }
 
-<section>
-    <header>
-        <h1>Dashboard</h1>
-        <p class="text-light">Overview for <strong>@Model.Owner</strong>.</p>
-    </header>
+<section class="dashboard-page">
+    <partial name="_ConsolePageHeader" model="pageHeader" />
 
-    <div class="row" role="list" aria-label="Owner summary">
-        <article class="card col-4" role="listitem">
-            <header class="hstack justify-between items-center">
-                <h3>Projects</h3>
-                <span class="badge">@Model.ProjectCount</span>
-            </header>
-            <p class="text-light">Distinct Pulumi projects for this owner.</p>
-        </article>
-        <article class="card col-4" role="listitem">
-            <header class="hstack justify-between items-center">
-                <h3>Stacks</h3>
-                <span class="badge">@Model.Context.SelectedOwnerStacks.Count</span>
-            </header>
-            <p class="text-light">Stacks currently visible in this workspace.</p>
-        </article>
-        <article class="card col-4" role="listitem">
-            <header class="hstack justify-between items-center">
-                <h3>Resources</h3>
-                <span class="badge">@Model.ResourceCount</span>
-            </header>
-            <p class="text-light">Tracked resources across the selected owner.</p>
-        </article>
+    <div class="dashboard-page__summary" role="list" aria-label="Owner summary">
+        <div role="listitem">
+            <component type="typeof(Makana.WebConsole.Components.ConsoleSummaryCard)"
+                       render-mode="Static"
+                       param-Title="@("Projects")"
+                       param-Value="@Model.ProjectCount.ToString()"
+                       param-Description="@("Distinct Pulumi projects for this owner.")" />
+        </div>
+        <div role="listitem">
+            <component type="typeof(Makana.WebConsole.Components.ConsoleSummaryCard)"
+                       render-mode="Static"
+                       param-Title="@("Stacks")"
+                       param-Value="@Model.Context.SelectedOwnerStacks.Count.ToString()"
+                       param-Description="@("Stacks currently visible in this workspace.")" />
+        </div>
+        <div role="listitem">
+            <component type="typeof(Makana.WebConsole.Components.ConsoleSummaryCard)"
+                       render-mode="Static"
+                       param-Title="@("Resources")"
+                       param-Value="@Model.ResourceCount.ToString()"
+                       param-Description="@("Tracked resources across the selected owner.")" />
+        </div>
     </div>
 </section>
 
-<section>
+<section class="dashboard-page__section">
     <h2>Recent stacks</h2>
     @if (Model.RecentStacks.Count == 0)
     {
-        <article class="card">
-            <p>No stacks yet for this owner.</p>
-        </article>
+        <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No stacks yet for this owner.")' />
     }
     else
     {

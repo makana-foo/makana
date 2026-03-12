@@ -5,14 +5,15 @@ using Makana.Api.Storage;
 namespace Makana.Api.Updates;
 
 internal sealed class StackOverviewMaterializer(
-    BackendStore store,
+    StackCatalogQueryRepository stackQueries,
+    UpdateQueryRepository updateQueries,
     EndpointHelpers endpointHelpers)
 {
     public async Task<StackOverviewResponse> BuildAsync(string stackId, CancellationToken cancellationToken)
     {
         var stack = endpointHelpers.BuildStackPageMetadata(
-            await store.GetStackPageMetadataByIdAsync(stackId, cancellationToken));
-        var updates = (await store.GetHistoryAsync(stackId, includePreviews: true))
+            stackQueries.GetStackPageMetadataById(stackId));
+        var updates = updateQueries.GetHistory(stackId, includePreviews: true)
             .OrderByDescending(static update => ParseSortTimestamp(update.CreatedAt))
             .ThenByDescending(static update => ParseSortTimestamp(update.CompletedAt))
             .ToArray();
@@ -21,8 +22,8 @@ internal sealed class StackOverviewMaterializer(
             return new StackOverviewResponse(stack, null, []);
         }
 
-        var previewFlags = await store.GetUpdatePreviewFlagsAsync(updates.Select(static update => update.Id).ToArray(), cancellationToken);
-        var resourceCount = await endpointHelpers.GetResourceCountAsync(store, stackId);
+        var previewFlags = updateQueries.GetUpdatePreviewFlags([.. updates.Select(static update => update.Id)]);
+        var resourceCount = await endpointHelpers.GetResourceCountAsync(updateQueries, stackId);
         var history = updates.Select(update =>
             {
                 var isPreview = endpointHelpers.IsPreviewOperation(

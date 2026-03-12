@@ -1,0 +1,52 @@
+@page "/{owner}/organizations/new"
+@model Makana.WebConsole.Pages.Organizations.CreateModel
+@using Makana.WebConsole.Models
+@{
+    ViewData["Title"] = "Create organization";
+    var pageHeader = new ConsolePageHeaderViewModel(
+        "Create organization",
+        "Start the organization creation flow without leaving the current owner-scoped console shell.");
+}
+
+<section class="settings-page">
+    <partial name="_ConsolePageHeader" model="pageHeader" />
+
+    <article class="card">
+        <header>
+            <h3>Organization details</h3>
+            <p class="text-light">
+                The surrounding shell stays scoped to <strong>@Model.Owner</strong>, but creating a new organization is not implemented yet.
+            </p>
+        </header>
+
+        @if (Model.CreationAttempted)
+        {
+            <div role="status" data-variant="info">
+                <strong>Not implemented.</strong> Makana does not provision organizations from the Web Console yet.
+            </div>
+        }
+        else
+        {
+            <div role="status" data-variant="info">
+                This is a stub form only. Submitting it will not call an organization-provisioning API.
+            </div>
+        }
+
+        <form method="post" class="vstack gap-3">
+            <label data-field>
+                Organization name
+                <input asp-for="OrganizationName"
+                       autocomplete="organization"
+                       placeholder="acme-platform"
+                       aria-describedby="organization-create-help" />
+            </label>
+            <p id="organization-create-help" class="text-light">
+                Choose the intended organization handle now; Makana will keep this value in the form but will not create anything yet.
+            </p>
+            <div class="hstack gap-2">
+                <button type="submit">Create organization</button>
+                <a class="button outline" asp-page="/Stacks/Index" asp-route-owner="@Model.Owner">Cancel</a>
+            </div>
+        </form>
+    </article>
+</section>

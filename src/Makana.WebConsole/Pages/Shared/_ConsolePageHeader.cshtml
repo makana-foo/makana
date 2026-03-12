@@ -1,0 +1,13 @@
+@model ConsolePageHeaderViewModel
+
+<header>
+    <h1>@Model.Title</h1>
+    @if (!string.IsNullOrWhiteSpace(Model.Subtitle))
+    {
+        <p class="text-light">@Model.Subtitle</p>
+    }
+    @if (!string.IsNullOrWhiteSpace(Model.BackHref) && !string.IsNullOrWhiteSpace(Model.BackLabel))
+    {
+        <p class="text-light"><a href="@Model.BackHref">@Model.BackLabel</a></p>
+    }
+</header>

@@ -12,7 +12,9 @@ using Microsoft.Data.Sqlite;
 namespace Makana.Api.Updates;
 
 internal sealed class ConformantJournalingUpdateProvider(
-    BackendStore store,
+    UpdateCommandRepository updateCommands,
+    UpdateQueryRepository updateQueries,
+    UpdateLogRepository updateLog,
     EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     private const int SupportedJournalVersion = 1;
@@ -32,11 +34,12 @@ internal sealed class ConformantJournalingUpdateProvider(
         PatchUpdateCheckpointRequest request,
         CancellationToken cancellationToken)
     {
-        await store.SaveCheckpointAsync(
+        var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
+        updateLog.SaveCheckpoint(
             updateId,
             request.Deployment.GetRawText(),
             request.Version,
-            cancellationToken);
+            schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
 
@@ -45,7 +48,8 @@ internal sealed class ConformantJournalingUpdateProvider(
         PatchUpdateCheckpointVerbatimRequest request,
         CancellationToken cancellationToken)
     {
-        var rawDeployment = request.UntypedDeployment.GetRawText();
+        var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
+        var rawDeployment = GetCheckpointDeploymentJson(request.UntypedDeployment);
         var signature = $"verbatim:{request.Version}:{rawDeployment}";
         return ApplySequencedCheckpointAsync(
             updateId,
@@ -62,6 +66,7 @@ internal sealed class ConformantJournalingUpdateProvider(
             existingCheckpoint =>
                 existingCheckpoint.Version == request.Version &&
                 string.Equals(existingCheckpoint.DeploymentJson, rawDeployment, StringComparison.Ordinal),
+            schemaVersion,
             cancellationToken);
     }
 
@@ -70,6 +75,7 @@ internal sealed class ConformantJournalingUpdateProvider(
         PatchUpdateCheckpointDeltaRequest request,
         CancellationToken cancellationToken)
     {
+        var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
         var deltaJson = request.DeploymentDelta.GetRawText();
         var signature = $"delta:{request.Version}:{request.CheckpointHash}:{deltaJson}";
         return ApplySequencedCheckpointAsync(
@@ -88,6 +94,7 @@ internal sealed class ConformantJournalingUpdateProvider(
             existingCheckpoint =>
                 existingCheckpoint.Version == request.Version &&
                 string.Equals(ComputeSha256Hex(existingCheckpoint.DeploymentJson), request.CheckpointHash, StringComparison.Ordinal),
+            schemaVersion,
             cancellationToken);
     }
 
@@ -111,38 +118,50 @@ internal sealed class ConformantJournalingUpdateProvider(
             entriesJson.Add(entries.GetRawText());
         }
 
-        await store.RecordJournalEntriesAsync(updateId, entriesJson, cancellationToken);
+        updateLog.RecordJournalEntries(updateId, entriesJson);
 
         // Pulumi may emit "write" entries containing full snapshots. Persist the latest
         // immediately when present to improve recovery if the process crashes mid-update.
         var latestSnapshot = TryGetLatestWriteSnapshot(entries);
         if (latestSnapshot.HasValue)
         {
-            await store.SaveCheckpointAsync(
+            var schemaVersion = await ResolvePersistedSchemaVersionAsync(
                 updateId,
                 latestSnapshot.Value.GetRawText(),
-                version: 3,
                 cancellationToken);
+            updateLog.SaveCheckpoint(
+                updateId,
+                latestSnapshot.Value.GetRawText(),
+                version: 0,
+                schemaVersion: schemaVersion);
         }
     }
 
     public async Task<bool> FinalizeSucceededUpdateAsync(string updateId, CancellationToken cancellationToken)
+        => await RecoverMaterializedDeploymentAsync(updateId, cancellationToken);
+
+    public async Task<bool> RecoverInterruptedUpdateAsync(string updateId, CancellationToken cancellationToken)
+        => await RecoverMaterializedDeploymentAsync(updateId, cancellationToken);
+
+    private async Task<bool> RecoverMaterializedDeploymentAsync(
+        string updateId,
+        CancellationToken cancellationToken)
     {
-        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+        var updateContext = updateCommands.GetUpdateContext(updateId);
         if (updateContext is null)
         {
             return false;
         }
 
-        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
+        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
         var baselineDeploymentJson = latestCheckpoint?.DeploymentJson;
         if (string.IsNullOrWhiteSpace(baselineDeploymentJson))
         {
-            var latestDeployment = await store.GetLatestDeploymentAsync(updateContext.Value.StackId, cancellationToken);
+            var latestDeployment = updateQueries.GetLatestDeployment(updateContext.Value.StackId);
             baselineDeploymentJson = latestDeployment?.DeploymentJson;
         }
 
-        var journalEntriesJson = await store.GetJournalEntriesAsync(updateId, cancellationToken);
+        var journalEntriesJson = updateLog.GetJournalEntries(updateId);
         var journalEntries = ParseJournalEntries(journalEntriesJson);
         if (journalEntries.Count == 0)
         {
@@ -153,12 +172,16 @@ internal sealed class ConformantJournalingUpdateProvider(
         var baselineSnapshot = ParseDeploymentSnapshot(baselineDeploymentJson);
         var replayed = replayEngine.Replay(baselineSnapshot, journalEntries);
         var materializedDeploymentJson = BuildDeploymentJson(replayed, baselineDeploymentJson);
+        var schemaVersion = await ResolvePersistedSchemaVersionAsync(
+            updateId,
+            materializedDeploymentJson,
+            cancellationToken);
 
-        await store.SaveCheckpointAsync(
+        updateLog.SaveCheckpoint(
             updateId,
             materializedDeploymentJson,
             updateContext.Value.Version,
-            cancellationToken);
+            schemaVersion: schemaVersion);
         return true;
     }
 
@@ -169,16 +192,17 @@ internal sealed class ConformantJournalingUpdateProvider(
         string requestSignature,
         Func<BaselineDeployment, CheckpointSession> sessionFactory,
         Func<CheckpointSession, CheckpointApplyResult> applyMutation,
-        Func<BackendStore.StoredUpdateCheckpoint, bool> legacyDuplicateMatcher,
+        Func<StoredUpdateCheckpoint, bool> legacyDuplicateMatcher,
+        int schemaVersion,
         CancellationToken cancellationToken)
     {
-        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+        var updateContext = updateCommands.GetUpdateContext(updateId);
         if (updateContext is null)
         {
             return new UpdateMutationResult(UpdateMutationStatus.NotFound);
         }
 
-        var existingAtSequence = await store.GetCheckpointBySequenceForUpdateAsync(updateId, sequenceNumber, cancellationToken);
+        var existingAtSequence = updateLog.GetCheckpointBySequenceForUpdate(updateId, sequenceNumber);
         if (existingAtSequence is not null)
         {
             if (IsDuplicate(existingAtSequence.Value, requestSignature, legacyDuplicateMatcher))
@@ -191,7 +215,7 @@ internal sealed class ConformantJournalingUpdateProvider(
                 $"checkpoint sequence {sequenceNumber} was already applied with different payload");
         }
 
-        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
+        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
         var expectedSequence = (latestCheckpoint?.Sequence ?? 0) + 1;
         if (sequenceNumber != expectedSequence)
         {
@@ -231,13 +255,13 @@ internal sealed class ConformantJournalingUpdateProvider(
 
         try
         {
-            var stored = await store.SaveCheckpointWithSequenceAsync(
+            var stored = updateLog.SaveCheckpointWithSequence(
                 updateId,
                 applyResult.StoredSequenceNumber,
                 applyResult.DeploymentJson,
                 requestVersion,
                 requestSignature,
-                cancellationToken);
+                schemaVersion);
             return stored
                 ? new UpdateMutationResult(UpdateMutationStatus.Ok)
                 : new UpdateMutationResult(UpdateMutationStatus.NotFound);
@@ -245,7 +269,7 @@ internal sealed class ConformantJournalingUpdateProvider(
         catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
         {
             // Retry-safe idempotency for concurrent duplicate writes.
-            var checkpoint = await store.GetCheckpointBySequenceForUpdateAsync(updateId, sequenceNumber, cancellationToken);
+            var checkpoint = updateLog.GetCheckpointBySequenceForUpdate(updateId, sequenceNumber);
             if (checkpoint is not null && IsDuplicate(checkpoint.Value, requestSignature, legacyDuplicateMatcher))
             {
                 return new UpdateMutationResult(UpdateMutationStatus.Ok);
@@ -259,7 +283,7 @@ internal sealed class ConformantJournalingUpdateProvider(
 
     private async Task<BaselineDeployment> ResolveBaselineDeploymentAsync(
         string stackId,
-        BackendStore.StoredUpdateCheckpoint? latestCheckpoint,
+        StoredUpdateCheckpoint? latestCheckpoint,
         CancellationToken cancellationToken)
     {
         if (latestCheckpoint is not null)
@@ -269,16 +293,28 @@ internal sealed class ConformantJournalingUpdateProvider(
                 latestCheckpoint.Value.DeploymentJson);
         }
 
-        var latestDeployment = await store.GetLatestDeploymentAsync(stackId, cancellationToken);
+        var latestDeployment = updateQueries.GetLatestDeploymentEnvelope(stackId);
         return new BaselineDeployment(
             LastSequence: 0,
             DeploymentJson: latestDeployment?.DeploymentJson);
     }
 
+    private async Task<int> ResolvePersistedSchemaVersionAsync(
+        string updateId,
+        string deploymentJson,
+        CancellationToken cancellationToken)
+    {
+        var updateContext = updateCommands.GetUpdateContext(updateId);
+        var preferredSchemaVersion = updateContext is null
+            ? null
+            : updateQueries.GetLatestDeploymentEnvelope(updateContext.Value.StackId)?.SchemaVersion;
+        return DeploymentSchemaPolicy.ResolvePersistedSchemaVersion(deploymentJson, preferredSchemaVersion);
+    }
+
     private static bool IsDuplicate(
-        BackendStore.StoredUpdateCheckpoint existingCheckpoint,
+        StoredUpdateCheckpoint existingCheckpoint,
         string requestSignature,
-        Func<BackendStore.StoredUpdateCheckpoint, bool> legacyDuplicateMatcher)
+        Func<StoredUpdateCheckpoint, bool> legacyDuplicateMatcher)
     {
         if (!string.IsNullOrWhiteSpace(existingCheckpoint.RequestSignature))
         {
@@ -487,12 +523,32 @@ internal sealed class ConformantJournalingUpdateProvider(
 
     private static ResourceState ParseResourceState(JsonElement element)
     {
-        var urn = TryGetStringProperty(element, "urn") ?? string.Empty;
-        var type = TryGetStringProperty(element, "type");
-        var id = TryGetStringProperty(element, "id");
-        var delete = TryGetBoolProperty(element, "delete") ?? false;
-        var pendingReplacement = TryGetBoolProperty(element, "pendingReplacement") ?? false;
-        var dependencies = ParseStringArrayProperty(element, "dependencies");
+        var rawJson = element.GetRawText();
+        var sourceElement = element;
+        if (element.TryGetProperty("rawJson", out var rawJsonElement) &&
+            rawJsonElement.ValueKind == JsonValueKind.String)
+        {
+            var candidate = rawJsonElement.GetString();
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                try
+                {
+                    using var rawDocument = JsonDocument.Parse(candidate);
+                    rawJson = candidate;
+                    sourceElement = rawDocument.RootElement.Clone();
+                }
+                catch (JsonException)
+                {
+                }
+            }
+        }
+
+        var urn = TryGetStringProperty(sourceElement, "urn") ?? string.Empty;
+        var type = TryGetStringProperty(sourceElement, "type");
+        var id = TryGetStringProperty(sourceElement, "id");
+        var delete = TryGetBoolProperty(sourceElement, "delete") ?? false;
+        var pendingReplacement = TryGetBoolProperty(sourceElement, "pendingReplacement") ?? false;
+        var dependencies = ParseStringArrayProperty(sourceElement, "dependencies");
 
         return new ResourceState(
             Urn: urn,
@@ -501,7 +557,7 @@ internal sealed class ConformantJournalingUpdateProvider(
             PendingReplacement: pendingReplacement,
             Id: id,
             Dependencies: dependencies,
-            RawJson: element.GetRawText());
+            RawJson: rawJson);
     }
 
     private static PendingOperation ParsePendingOperation(JsonElement element)
@@ -525,18 +581,18 @@ internal sealed class ConformantJournalingUpdateProvider(
     {
         var template = ParseJsonNode(baselineDeploymentJson) as JsonObject;
         template ??= ParseJsonNode(endpointHelpers.CreateEmptyDeploymentJson()) as JsonObject;
-        template ??= new JsonObject();
+        template ??= [];
 
         var resources = new JsonArray();
         foreach (var resource in snapshot.Resources)
         {
-            resources.Add(ParseJsonNode(resource.RawJson) ?? BuildMinimalResourceNode(resource));
+            resources.Add((JsonNode?)BuildResourceNode(resource));
         }
 
         var pendingOperations = new JsonArray();
         foreach (var operation in snapshot.PendingOperations)
         {
-            pendingOperations.Add(ParseJsonNode(operation.RawJson) ?? BuildMinimalOperationNode(operation));
+            pendingOperations.Add(ParseJsonNode(operation.RawJson) ?? (JsonNode?)BuildMinimalOperationNode(operation));
         }
 
         template["resources"] = resources;
@@ -596,6 +652,62 @@ internal sealed class ConformantJournalingUpdateProvider(
             }
 
             node["dependencies"] = dependencies;
+        }
+
+        return node;
+    }
+
+    private static JsonObject BuildResourceNode(ResourceState resource)
+    {
+        var node = ParseJsonNode(resource.RawJson) as JsonObject ?? BuildMinimalResourceNode(resource);
+
+        node["urn"] = resource.Urn;
+
+        if (!string.IsNullOrWhiteSpace(resource.Type))
+        {
+            node["type"] = resource.Type;
+        }
+
+        if (!string.IsNullOrWhiteSpace(resource.Id))
+        {
+            node["id"] = resource.Id;
+        }
+        else
+        {
+            node.Remove("id");
+        }
+
+        if (resource.Delete)
+        {
+            node["delete"] = true;
+        }
+        else
+        {
+            node.Remove("delete");
+        }
+
+        if (resource.PendingReplacement)
+        {
+            node["pendingReplacement"] = true;
+        }
+        else
+        {
+            node.Remove("pendingReplacement");
+        }
+
+        if (resource.Dependencies is { Count: > 0 })
+        {
+            var dependencies = new JsonArray();
+            foreach (var dependency in resource.Dependencies)
+            {
+                dependencies.Add((JsonNode?)JsonValue.Create(dependency));
+            }
+
+            node["dependencies"] = dependencies;
+        }
+        else
+        {
+            node.Remove("dependencies");
         }
 
         return node;
@@ -746,9 +858,20 @@ internal sealed class ConformantJournalingUpdateProvider(
         return values;
     }
 
+    private static string GetCheckpointDeploymentJson(JsonElement untypedDeployment)
+    {
+        if (untypedDeployment.ValueKind == JsonValueKind.Object &&
+            untypedDeployment.TryGetProperty("deployment", out var deploymentElement) &&
+            deploymentElement.ValueKind == JsonValueKind.Object)
+        {
+            return deploymentElement.GetRawText();
+        }
+
+        return untypedDeployment.GetRawText();
+    }
+
     private static bool TryGetPendingOperations(JsonElement element, out JsonElement operations)
     {
-        operations = default;
         if (element.TryGetProperty("pendingOperations", out operations) &&
             operations.ValueKind == JsonValueKind.Array)
         {

@@ -2,8 +2,11 @@ namespace Makana.WebConsole.Models;
 
 public static class ConsoleRoutePaths
 {
+    public static string OwnerDashboard(string owner)
+        => $"/{Escape(owner)}";
+
     public static string Stack(string owner, string project, string stack)
-        => $"/{Escape(owner)}/stacks/{Escape(project)}/{Escape(stack)}";
+        => $"{OwnerDashboard(owner)}/stacks/{Escape(project)}/{Escape(stack)}";
 
     public static string StackUpdateVersion(string owner, string project, string stack, int version)
         => $"{Stack(owner, project, stack)}/updates/{version}";

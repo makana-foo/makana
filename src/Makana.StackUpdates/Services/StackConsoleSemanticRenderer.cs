@@ -5,8 +5,6 @@ namespace Makana.StackUpdates.Services;
 
 public static partial class StackConsoleSemanticRenderer
 {
-    private const string UnknownSignatureValue = "04da6b54-80e4-46f7-96ec-b56ff0331ba9";
-
     public static StackConsoleRenderedDocument Render(
         StackConsoleViewKind viewKind,
         IReadOnlyList<StackConsoleLineProjection>? lines,
@@ -16,12 +14,14 @@ public static partial class StackConsoleSemanticRenderer
         {
             return new StackConsoleRenderedDocument(
                 viewKind,
-                lines.Select(line => RenderLine(viewKind, line.Key, line.Text)).ToArray());
+                lines.Select(line => RenderLine(viewKind, line)).ToArray());
         }
 
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
         var renderedLines = normalized.Split('\n', StringSplitOptions.None)
-            .Select((line, index) => RenderLine(viewKind, $"{viewKind.ToString().ToLowerInvariant()}:{index}", line))
+            .Select((line, index) => RenderLine(
+                viewKind,
+                new StackConsoleLineProjection($"{viewKind.ToString().ToLowerInvariant()}:{index}", index, line)))
             .ToArray();
 
         return new StackConsoleRenderedDocument(viewKind, renderedLines);
@@ -32,25 +32,47 @@ public static partial class StackConsoleSemanticRenderer
         IReadOnlyList<StackConsoleLineDelta> deltas)
         => deltas.Select(delta => new StackConsoleRenderedDelta(
                 delta.Key,
-                delta.Action.ToString().ToLowerInvariant(),
+                GetActionName(delta.Action),
+                delta.AnchorKey,
                 delta.Action == StackConsoleLineDeltaAction.Delete
                     ? null
-                    : RenderLine(viewKind, delta.Key, delta.Text)))
+                    : RenderLine(viewKind, new StackConsoleLineProjection(delta.Key, delta.Sequence, delta.Text, delta.SummarySemantic))))
             .ToArray();
 
     public static string Flatten(StackConsoleRenderedDocument document)
         => string.Join('\n', document.Lines.Select(line => string.Concat(line.Segments.Select(segment => segment.Text))));
 
-    private static StackConsoleRenderedLine RenderLine(StackConsoleViewKind viewKind, string key, string line)
+    private static StackConsoleRenderedLine RenderLine(StackConsoleViewKind viewKind, StackConsoleLineProjection line)
         => viewKind switch
         {
-            StackConsoleViewKind.Summary => RenderSummaryLine(key, line),
-            StackConsoleViewKind.Diff => RenderDiffLine(key, line),
-            StackConsoleViewKind.Diagnostic => RenderDiagnosticLine(key, line),
-            _ => PlainLine(key, line, "stack-console-line")
+            StackConsoleViewKind.Summary => RenderSummaryLine(line),
+            StackConsoleViewKind.Diff => RenderDiffLine(line.Key, line.Text),
+            StackConsoleViewKind.Diagnostic => RenderDiagnosticLine(line.Key, line.Text),
+            _ => PlainLine(line.Key, line.Text, "stack-console-line")
         };
 
-    private static StackConsoleRenderedLine RenderSummaryLine(string key, string line)
+    private static StackConsoleRenderedLine RenderSummaryLine(StackConsoleLineProjection projection)
+    {
+        var key = projection.Key;
+        var line = projection.Text;
+
+        if (projection.SummarySemantic is { } semantic)
+        {
+            return semantic.Kind switch
+            {
+                StackSummaryLineKind.Header => RenderSummaryHeaderLine(key, line, semantic),
+                StackSummaryLineKind.Resource => RenderSummaryResourceLine(key, line, semantic),
+                StackSummaryLineKind.SectionHeading => RenderSummarySectionLine(key, semantic.HeadingText ?? line),
+                StackSummaryLineKind.SectionDetail => RenderSummarySectionDetailLine(key, semantic.HeadingText ?? line),
+                StackSummaryLineKind.DiagnosticDetail => RenderSummaryDiagnosticDetailLine(key, semantic.HeadingText ?? line),
+                _ => RenderSummaryLineFromText(key, line)
+            };
+        }
+
+        return RenderSummaryLineFromText(key, line);
+    }
+
+    private static StackConsoleRenderedLine RenderSummaryLineFromText(string key, string line)
     {
         if (string.IsNullOrEmpty(line))
         {
@@ -69,12 +91,26 @@ public static partial class StackConsoleSemanticRenderer
                     new StackConsoleRenderedSegment(line[28..58], "stack-console-segment stack-console-segment--column-heading"),
                     new StackConsoleRenderedSegment(line[58..69], "stack-console-segment stack-console-segment--column-heading"),
                     new StackConsoleRenderedSegment(line[69..], "stack-console-segment stack-console-segment--column-heading"),
+                ],
+                [
+                    SummaryCell("stack-console-cell stack-console-cell--summary-type stack-console-cell--summary-heading", [
+                        new StackConsoleRenderedSegment("Type", "stack-console-segment stack-console-segment--column-heading")
+                    ]),
+                    SummaryCell("stack-console-cell stack-console-cell--summary-name stack-console-cell--summary-heading", [
+                        new StackConsoleRenderedSegment("Name", "stack-console-segment stack-console-segment--column-heading")
+                    ]),
+                    SummaryCell("stack-console-cell stack-console-cell--summary-status stack-console-cell--summary-heading", [
+                        new StackConsoleRenderedSegment("Status", "stack-console-segment stack-console-segment--column-heading")
+                    ]),
+                    SummaryCell("stack-console-cell stack-console-cell--summary-info stack-console-cell--summary-heading", [
+                        new StackConsoleRenderedSegment("Info", "stack-console-segment stack-console-segment--column-heading")
+                    ])
                 ]);
         }
 
         if (line is "Outputs:" or "Resources:" || line.StartsWith("Duration:", StringComparison.Ordinal))
         {
-            return HeadingWithRemainder(key, line);
+            return RenderSummarySectionLine(key, line);
         }
 
         if (line.StartsWith("     ", StringComparison.Ordinal) && line.Length >= 69)
@@ -93,10 +129,207 @@ public static partial class StackConsoleSemanticRenderer
             segments.Add(new StackConsoleRenderedSegment(nameColumn, "stack-console-segment stack-console-segment--summary-name"));
             segments.Add(new StackConsoleRenderedSegment(statusColumn, "stack-console-segment stack-console-segment--summary-status"));
             segments.Add(new StackConsoleRenderedSegment(infoColumn, "stack-console-segment stack-console-segment--summary-info"));
-            return new StackConsoleRenderedLine(key, line, "stack-console-line stack-console-line--summary-grid stack-console-line--summary-row", segments);
+            return new StackConsoleRenderedLine(
+                key,
+                line,
+                "stack-console-line stack-console-line--summary-grid stack-console-line--summary-row",
+                segments,
+                [
+                SummaryCell("stack-console-cell stack-console-cell--summary-type", typeSegments),
+                SummaryCell("stack-console-cell stack-console-cell--summary-name", [
+                    new StackConsoleRenderedSegment(nameColumn, "stack-console-segment stack-console-segment--summary-name")
+                ]),
+                    SummaryCell("stack-console-cell stack-console-cell--summary-status", [
+                        new StackConsoleRenderedSegment(statusColumn, "stack-console-segment stack-console-segment--summary-status")
+                    ]),
+                    SummaryCell("stack-console-cell stack-console-cell--summary-info", [
+                        new StackConsoleRenderedSegment(infoColumn, "stack-console-segment stack-console-segment--summary-info")
+                    ])
+                ]);
         }
 
         return RenderIndentedDiffLikeLine(key, line, "stack-console-line stack-console-line--summary-detail");
+    }
+
+    private static StackConsoleRenderedLine RenderSummaryHeaderLine(string key, string line, StackSummaryLineSemantic semantic)
+    {
+        var lineCssClass = semantic.ShowInfoColumn
+            ? "stack-console-line stack-console-line--summary-grid stack-console-line--header"
+            : "stack-console-line stack-console-line--summary-grid stack-console-line--summary-grid-no-info stack-console-line--header";
+
+        var cells = new List<StackConsoleRenderedCell>
+        {
+            SummaryCell("stack-console-cell stack-console-cell--summary-type stack-console-cell--summary-heading", [
+                new StackConsoleRenderedSegment(semantic.TypeText ?? "Type", "stack-console-segment stack-console-segment--column-heading")
+            ]),
+            SummaryCell("stack-console-cell stack-console-cell--summary-name stack-console-cell--summary-heading", [
+                new StackConsoleRenderedSegment(semantic.Name ?? "Name", "stack-console-segment stack-console-segment--column-heading")
+            ]),
+            SummaryCell("stack-console-cell stack-console-cell--summary-status stack-console-cell--summary-heading", [
+                new StackConsoleRenderedSegment(semantic.Status ?? "Status", "stack-console-segment stack-console-segment--column-heading")
+            ])
+        };
+
+        if (semantic.ShowInfoColumn)
+        {
+            cells.Add(SummaryCell("stack-console-cell stack-console-cell--summary-info stack-console-cell--summary-heading", [
+                new StackConsoleRenderedSegment(semantic.Info ?? "Info", "stack-console-segment stack-console-segment--column-heading")
+            ]));
+        }
+
+        return new StackConsoleRenderedLine(
+            key,
+            line,
+            lineCssClass,
+            [
+                new StackConsoleRenderedSegment("     ", "stack-console-segment stack-console-segment--whitespace"),
+                new StackConsoleRenderedSegment(semantic.TypeText ?? "Type", "stack-console-segment stack-console-segment--column-heading"),
+                new StackConsoleRenderedSegment(semantic.Name ?? "Name", "stack-console-segment stack-console-segment--column-heading"),
+                new StackConsoleRenderedSegment(semantic.Status ?? "Status", "stack-console-segment stack-console-segment--column-heading"),
+                new StackConsoleRenderedSegment(semantic.Info ?? "Info", "stack-console-segment stack-console-segment--column-heading"),
+            ],
+            cells);
+    }
+
+    private static StackConsoleRenderedLine RenderSummaryResourceLine(string key, string line, StackSummaryLineSemantic semantic)
+    {
+        var segments = new List<StackConsoleRenderedSegment>
+        {
+            new("     ", "stack-console-segment stack-console-segment--whitespace")
+        };
+
+        if (!string.IsNullOrEmpty(semantic.Tree))
+        {
+            var treeCss = semantic.Tree.Length == 2
+                ? "stack-console-segment stack-console-segment--marker"
+                : "stack-console-segment stack-console-segment--tree";
+            segments.Add(new StackConsoleRenderedSegment(semantic.Tree, treeCss));
+        }
+
+        segments.Add(new StackConsoleRenderedSegment(semantic.TypeText ?? string.Empty, "stack-console-segment stack-console-segment--summary-type"));
+        segments.Add(new StackConsoleRenderedSegment(semantic.Name ?? string.Empty, "stack-console-segment stack-console-segment--summary-name"));
+        var summaryStatusCss = SummaryStatusCss(semantic.Status);
+        segments.Add(new StackConsoleRenderedSegment(semantic.Status ?? string.Empty, summaryStatusCss));
+        segments.Add(new StackConsoleRenderedSegment(semantic.Info ?? string.Empty, SummaryInfoCss(semantic.Info)));
+
+        var typeCellSegments = new List<StackConsoleRenderedSegment>();
+        if (!string.IsNullOrEmpty(semantic.Tree))
+        {
+            var treeCss = semantic.Tree.Length == 2
+                ? "stack-console-segment stack-console-segment--marker"
+                : "stack-console-segment stack-console-segment--tree";
+            typeCellSegments.Add(new StackConsoleRenderedSegment(semantic.Tree, treeCss));
+        }
+
+        typeCellSegments.Add(new StackConsoleRenderedSegment(semantic.TypeText ?? string.Empty, "stack-console-segment stack-console-segment--summary-type"));
+
+        var typeCellCssClass = string.IsNullOrEmpty(semantic.Tree)
+            ? "stack-console-cell stack-console-cell--summary-type"
+            : "stack-console-cell stack-console-cell--summary-type stack-console-cell--summary-type-nested";
+
+        var lineCssClass = semantic.ShowInfoColumn
+            ? "stack-console-line stack-console-line--summary-grid stack-console-line--summary-row"
+            : "stack-console-line stack-console-line--summary-grid stack-console-line--summary-grid-no-info stack-console-line--summary-row";
+
+        var cells = new List<StackConsoleRenderedCell>
+        {
+            SummaryCell(typeCellCssClass, typeCellSegments),
+            SummaryCell("stack-console-cell stack-console-cell--summary-name", [
+                new StackConsoleRenderedSegment(semantic.Name ?? string.Empty, "stack-console-segment stack-console-segment--summary-name")
+            ]),
+            SummaryCell("stack-console-cell stack-console-cell--summary-status", [
+                new StackConsoleRenderedSegment(semantic.Status ?? string.Empty, summaryStatusCss)
+            ])
+        };
+
+        if (semantic.ShowInfoColumn)
+        {
+            cells.Add(SummaryCell("stack-console-cell stack-console-cell--summary-info", [
+                new StackConsoleRenderedSegment(semantic.Info ?? string.Empty, SummaryInfoCss(semantic.Info))
+            ]));
+        }
+
+        return new StackConsoleRenderedLine(
+            key,
+            line,
+            lineCssClass,
+            segments,
+            cells);
+    }
+
+    private static StackConsoleRenderedLine RenderSummarySectionLine(string key, string line)
+    {
+        var colon = line.IndexOf(':', StringComparison.Ordinal);
+        IReadOnlyList<StackConsoleRenderedSegment> segments = colon < 0 || colon == line.Length - 1
+            ? [new StackConsoleRenderedSegment(line, "stack-console-segment stack-console-segment--heading")]
+            : [
+                new StackConsoleRenderedSegment(line[..(colon + 1)], "stack-console-segment stack-console-segment--heading"),
+                new StackConsoleRenderedSegment(line[(colon + 1)..], "stack-console-segment stack-console-segment--heading-detail")
+            ];
+
+        return new StackConsoleRenderedLine(
+            key,
+            line,
+            "stack-console-line stack-console-line--summary-grid stack-console-line--summary-section",
+            segments,
+            [SummaryCell("stack-console-cell stack-console-cell--summary-section", segments)]);
+    }
+
+    private static StackConsoleRenderedLine RenderSummarySectionDetailLine(string key, string line)
+    {
+        var indentLength = line.TakeWhile(static ch => ch == ' ').Count();
+        var indent = line[..indentLength];
+        var content = line[indentLength..];
+        var segments = new List<StackConsoleRenderedSegment>();
+
+        if (!string.IsNullOrEmpty(indent))
+        {
+            segments.Add(new StackConsoleRenderedSegment(indent, "stack-console-segment stack-console-segment--indent"));
+        }
+
+        if (content.Length >= 2 && IsMarkerPrefix(content[..2]))
+        {
+            var marker = content[..2];
+            segments.Add(new StackConsoleRenderedSegment(marker, $"stack-console-segment stack-console-segment--marker {MarkerVariantCss(marker)}".TrimEnd()));
+            content = content[2..];
+        }
+
+        if (!string.IsNullOrEmpty(content))
+        {
+            segments.Add(new StackConsoleRenderedSegment(content, "stack-console-segment stack-console-segment--heading-detail"));
+        }
+
+        return new StackConsoleRenderedLine(
+            key,
+            line,
+            "stack-console-line stack-console-line--summary-grid stack-console-line--summary-section-detail",
+            segments,
+            [SummaryCell("stack-console-cell stack-console-cell--summary-section", segments)]);
+    }
+
+    private static StackConsoleRenderedLine RenderSummaryDiagnosticDetailLine(string key, string line)
+    {
+        var indentLength = line.TakeWhile(static ch => ch == ' ').Count();
+        var indent = line[..indentLength];
+        var content = line[indentLength..];
+
+        var segments = new List<StackConsoleRenderedSegment>();
+        if (!string.IsNullOrEmpty(indent))
+        {
+            segments.Add(new StackConsoleRenderedSegment(indent, "stack-console-segment stack-console-segment--indent"));
+        }
+
+        if (!string.IsNullOrEmpty(content))
+        {
+            segments.Add(new StackConsoleRenderedSegment(content, "stack-console-segment stack-console-segment--diagnostic-text stack-console-segment--error"));
+        }
+
+        return new StackConsoleRenderedLine(
+            key,
+            line,
+            "stack-console-line stack-console-line--summary-grid stack-console-line--summary-diagnostic",
+            segments,
+            [SummaryCell("stack-console-cell stack-console-cell--summary-section", segments)]);
     }
 
     private static IReadOnlyList<StackConsoleRenderedSegment> RenderSummaryTypeColumn(string typeColumn)
@@ -158,6 +391,19 @@ public static partial class StackConsoleSemanticRenderer
         return RenderIndentedDiffLikeLine(key, line, "stack-console-line stack-console-line--property");
     }
 
+    private static string GetActionName(StackConsoleLineDeltaAction action)
+        => action switch
+        {
+            StackConsoleLineDeltaAction.Append => "append",
+            StackConsoleLineDeltaAction.InsertBefore => "insertBefore",
+            StackConsoleLineDeltaAction.Upsert => "upsert",
+            StackConsoleLineDeltaAction.Delete => "delete",
+            _ => action.ToString().ToLowerInvariant()
+        };
+
+    private static StackConsoleRenderedCell SummaryCell(string cssClass, IReadOnlyList<StackConsoleRenderedSegment> segments)
+        => new(cssClass, segments);
+
     private static StackConsoleRenderedLine RenderDiffResourceLine(string key, string line)
     {
         var indentLength = line.TakeWhile(static ch => ch == ' ').Count();
@@ -180,7 +426,7 @@ public static partial class StackConsoleSemanticRenderer
         var split = content.LastIndexOf(": (", StringComparison.Ordinal);
         if (split >= 0)
         {
-            var variantCss = MarkerVariantCss(content);
+            var variantCss = DiffVariantCss(content);
             segments.Add(new StackConsoleRenderedSegment(content[..(split + 1)], $"stack-console-segment stack-console-segment--resource {variantCss}".TrimEnd()));
             segments.Add(new StackConsoleRenderedSegment(content[(split + 1)..], $"stack-console-segment stack-console-segment--status {variantCss}".TrimEnd()));
         }
@@ -230,7 +476,7 @@ public static partial class StackConsoleSemanticRenderer
 
     private static StackConsoleRenderedLine RenderIndentedDiffLikeLine(string key, string line, string lineCssClass)
     {
-        var normalizedLine = line.Replace(UnknownSignatureValue, "[unknown]", StringComparison.Ordinal);
+        var normalizedLine = PulumiDisplayValueFormatter.NormalizeUnknownDisplayText(line);
         var indentLength = normalizedLine.TakeWhile(static ch => ch == ' ').Count();
         var indent = normalizedLine[..indentLength];
         var content = normalizedLine[indentLength..];
@@ -310,6 +556,83 @@ public static partial class StackConsoleSemanticRenderer
         }
 
         return string.Empty;
+    }
+
+    private static string DiffVariantCss(string? markerOrLine)
+    {
+        var markerVariant = MarkerVariantCss(markerOrLine);
+        if (!string.IsNullOrEmpty(markerVariant))
+        {
+            return markerVariant;
+        }
+
+        if (string.IsNullOrWhiteSpace(markerOrLine))
+        {
+            return string.Empty;
+        }
+
+        var operationStart = markerOrLine.LastIndexOf("(", StringComparison.Ordinal);
+        var operationEnd = markerOrLine.LastIndexOf(")", StringComparison.Ordinal);
+        if (operationStart < 0 || operationEnd <= operationStart)
+        {
+            return string.Empty;
+        }
+
+        var operation = markerOrLine[(operationStart + 1)..operationEnd].Trim().ToLowerInvariant();
+        return operation switch
+        {
+            "create" or "import" or "read" or "create-replacement" => "stack-console-segment--create",
+            "delete" or "delete-replaced" => "stack-console-segment--delete",
+            "update" or "replace" or "replaced" => "stack-console-segment--update",
+            _ => string.Empty
+        };
+    }
+
+    private static string SummaryStatusCss(string? status)
+    {
+        var variantCss = SummaryStatusVariantCss(status);
+        return string.IsNullOrEmpty(variantCss)
+            ? "stack-console-segment stack-console-segment--summary-status"
+            : $"stack-console-segment stack-console-segment--summary-status {variantCss}";
+    }
+
+    private static string SummaryInfoCss(string? info)
+    {
+        var variantCss = SummaryInfoVariantCss(info);
+        return string.IsNullOrEmpty(variantCss)
+            ? "stack-console-segment stack-console-segment--summary-info"
+            : $"stack-console-segment stack-console-segment--summary-info {variantCss}";
+    }
+
+    private static string SummaryStatusVariantCss(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return string.Empty;
+        }
+
+        var normalized = status.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "created" or "creating" or "imported" or "importing" or "read" or "reading" => "stack-console-segment--create",
+            "deleted" or "deleting" => "stack-console-segment--delete",
+            "updated" or "updating" or "replaced" or "replacing" or "created replacement" or "deleted replaced" => "stack-console-segment--update",
+            "failed" or "failing" => "stack-console-segment--error",
+            _ => string.Empty
+        };
+    }
+
+    private static string SummaryInfoVariantCss(string? info)
+    {
+        if (string.IsNullOrWhiteSpace(info))
+        {
+            return string.Empty;
+        }
+
+        var normalized = info.Trim().ToLowerInvariant();
+        return normalized.EndsWith(" error", StringComparison.Ordinal) || normalized.EndsWith(" errors", StringComparison.Ordinal)
+            ? "stack-console-segment--error"
+            : string.Empty;
     }
 
     private static StackConsoleRenderedLine PlainLine(

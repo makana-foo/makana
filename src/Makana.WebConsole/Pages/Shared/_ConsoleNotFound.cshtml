@@ -1,0 +1,14 @@
+@using Makana.WebConsole.Models
+@{
+    var viewModel = ViewData.Model as ConsoleEmptyStateViewModel
+        ?? new ConsoleEmptyStateViewModel("We couldn't find that console page.", "Not found");
+}
+
+<section class="console-not-found">
+    <article class="card">
+        <header>
+            <h1>@(viewModel.Title ?? "Not found")</h1>
+            <p class="text-light">@viewModel.Message</p>
+        </header>
+    </article>
+</section>

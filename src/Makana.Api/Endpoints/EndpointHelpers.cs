@@ -4,26 +4,28 @@ using System.Text.Json.Nodes;
 using Makana.Api.Contracts;
 using Makana.Api.Security;
 using Makana.Api.Storage;
+using Makana.Journaling.Checkpointing;
 
 namespace Makana.Api.Endpoints;
 
 internal sealed class EndpointHelpers
 {
     public async Task<IResult> CreateUpdateResponseAsync(
-        BackendStore store,
+        StackCatalogQueryRepository stackQueries,
+        UpdateCommandRepository updateCommands,
         string org,
         string project,
         string stack,
         string kind,
         UpdateProgramRequest request)
     {
-        var ids = await store.GetStackIdsAsync(org, project, stack);
+        var ids = stackQueries.GetStackIds(org, project, stack);
         if (ids is null)
         {
             return Results.NotFound();
         }
 
-        var updateId = await store.CreateUpdateAsync(
+        var updateId = updateCommands.CreateUpdate(
             ids.Value.StackId,
             kind,
             JsonSerializer.Serialize(request, EndpointHelpersJsonContext.Default.UpdateProgramRequest));
@@ -31,20 +33,21 @@ internal sealed class EndpointHelpers
     }
 
     public async Task<IResult> CreateUpdateResponseByNamespaceIdAsync(
-        BackendStore store,
+        StackCatalogQueryRepository stackQueries,
+        UpdateCommandRepository updateCommands,
         string namespaceId,
         string project,
         string stack,
         string kind,
         UpdateProgramRequest request)
     {
-        var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceId, project, stack);
+        var ids = stackQueries.GetStackIdsByNamespaceId(namespaceId, project, stack);
         if (ids is null)
         {
             return Results.NotFound();
         }
 
-        var updateId = await store.CreateUpdateAsync(
+        var updateId = updateCommands.CreateUpdate(
             ids.Value.StackId,
             kind,
             JsonSerializer.Serialize(request, EndpointHelpersJsonContext.Default.UpdateProgramRequest));
@@ -57,7 +60,7 @@ internal sealed class EndpointHelpers
     }
 
     public async Task<StackSummary[]> BuildStackSummariesAsync(
-        BackendStore store,
+        UpdateQueryRepository updateQueries,
         HttpRequest request,
         IEnumerable<(string StackId, string Name, string OrgName, string ProjectName, string? LastUpdate, string? TagsJson)> rows)
     {
@@ -67,8 +70,8 @@ internal sealed class EndpointHelpers
             var tags = row.TagsJson is null
                 ? null
                 : JsonSerializer.Deserialize(row.TagsJson, EndpointHelpersJsonContext.Default.DictionaryStringString);
-            var lastUpdate = await store.GetLatestUpdateTimeAsync(row.StackId);
-            var resourceCount = await GetResourceCountAsync(store, row.StackId);
+            var lastUpdate = updateQueries.GetHistory(row.StackId).FirstOrDefault().CreatedAt;
+            var resourceCount = await GetResourceCountAsync(updateQueries, row.StackId);
             var link = new StackLinks($"{GetBaseUrl(request)}/stacks/{row.OrgName}/{row.ProjectName}/{row.Name}");
             list.Add(new StackSummary(
                 $"{row.OrgName}/{row.ProjectName}/{row.Name}",
@@ -81,12 +84,12 @@ internal sealed class EndpointHelpers
                 tags));
         }
 
-        return list.ToArray();
+        return [.. list];
     }
 
-    public async Task<int?> GetResourceCountAsync(BackendStore store, string stackId)
+    public async Task<int?> GetResourceCountAsync(UpdateQueryRepository updateQueries, string stackId)
     {
-        var deployment = await store.GetLatestDeploymentAsync(stackId);
+        var deployment = updateQueries.GetLatestDeployment(stackId);
         if (deployment is null)
         {
             return null;
@@ -130,6 +133,16 @@ internal sealed class EndpointHelpers
         {
             "not-started" => "not started",
             "in-progress" => "running",
+            _ => status
+        };
+    }
+
+    public string NormalizeUpdateResult(string status)
+    {
+        return status switch
+        {
+            "canceled" => "failed",
+            "cancelled" => "failed",
             _ => status
         };
     }
@@ -306,11 +319,11 @@ internal sealed class EndpointHelpers
             var other => char.ToUpperInvariant(other[0]) + other[1..]
         };
 
-    public async Task SaveUploadAsync(BackendStore store, HttpRequest request, string path)
+    public async Task SaveUploadAsync(UploadRepository uploadRepository, HttpRequest request, string path)
     {
         await using var stream = new MemoryStream();
         await request.Body.CopyToAsync(stream);
-        await store.SaveUploadAsync(path, request.ContentType, stream.ToArray());
+        uploadRepository.SaveUpload(path, request.ContentType, stream.ToArray());
     }
 
     public string? GetUpdateToken(HttpContext context)
@@ -345,7 +358,7 @@ internal sealed class EndpointHelpers
     {
         if (ciphertext.Length < 28)
         {
-            return Array.Empty<byte>();
+            return [];
         }
 
         var nonce = new byte[12];
@@ -379,8 +392,7 @@ internal sealed class EndpointHelpers
 
         try
         {
-            var node = JsonNode.Parse(baseDeploymentJson) as JsonObject;
-            if (node is null)
+            if (JsonNode.Parse(baseDeploymentJson) is not JsonObject node)
             {
                 return CreateEmptyDeploymentJson();
             }
@@ -397,12 +409,12 @@ internal sealed class EndpointHelpers
 
     public CapabilitiesResponse GetCapabilitiesResponse()
     {
-        var deploymentConfig = JsonDocument.Parse("{\"version\":4}").RootElement.Clone();
-        return new CapabilitiesResponse(new[]
-        {
+        var deploymentConfig = JsonDocument.Parse($@"{{""version"":{DeploymentSchemaRegistry.LatestSupportedVersion}}}").RootElement.Clone();
+        return new CapabilitiesResponse(
+        [
             new ApiCapabilityConfig("batch-encrypt", null, null),
             new ApiCapabilityConfig("deployment-schema-version", 1, deploymentConfig),
-        });
+        ]);
     }
 
     public bool TryApplyTextEdits(string source, JsonElement editsElement, out string result)

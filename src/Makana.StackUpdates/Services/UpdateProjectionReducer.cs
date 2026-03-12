@@ -427,12 +427,15 @@ public sealed partial class UpdateProjectionReducer
         => operation.ToLowerInvariant() switch
         {
             "create" => "creating",
+            "create-replacement" => "creating replacement",
             "update" => "updating",
             "replace" => "replacing",
             "delete" => "deleting",
+            "delete-replaced" => "deleting replaced",
             "same" => "same",
             "refresh" => "refreshing",
             "read" => "reading",
+            "read-replacement" => "reading replacement",
             "import" => "importing",
             "discard" => "discarding",
             _ => operation
@@ -442,12 +445,15 @@ public sealed partial class UpdateProjectionReducer
         => operation.ToLowerInvariant() switch
         {
             "create" => "created",
+            "create-replacement" => "created replacement",
             "update" => "updated",
             "replace" => "replaced",
             "delete" => "deleted",
+            "delete-replaced" => "deleted replaced",
             "same" => "same",
             "refresh" => "refreshed",
             "read" => "read",
+            "read-replacement" => "read replacement",
             "import" => "imported",
             "discard" => "discarded",
             _ => operation

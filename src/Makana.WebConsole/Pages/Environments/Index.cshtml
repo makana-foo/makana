@@ -5,12 +5,8 @@
 }
 
 <section>
-    <header>
-        <h1>Environments</h1>
-        <p class="text-light">This section is a placeholder for environment policy and variable management.</p>
-    </header>
+    <partial name="_ConsolePageHeader"
+             model='new ConsolePageHeaderViewModel("Environments", "This section is a placeholder for environment policy and variable management.")' />
 
-    <article class="card">
-        <p>No environment features are implemented yet.</p>
-    </article>
+    <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No environment features are implemented yet.")' />
 </section>

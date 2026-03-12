@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Makana.Journaling.Checkpointing;
 
-internal static class TextEditApplier
+public static class TextEditApplier
 {
     public static bool TryApplyTextEdits(string source, string editsJson, out string result)
     {
@@ -222,4 +222,3 @@ internal static class TextEditApplier
         return false;
     }
 }
-

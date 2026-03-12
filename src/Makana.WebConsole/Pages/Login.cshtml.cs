@@ -1,3 +1,5 @@
+using Makana.WebConsole.Models;
+using Makana.WebConsole.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -8,40 +10,38 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace Makana.WebConsole.Pages;
 
 [AllowAnonymous]
-public sealed class LoginModel : PageModel
+public sealed class LoginModel(ConsoleContextService consoleContextService) : PageModel
 {
-    public IActionResult OnGet(string? returnUrl = null)
+    public IReadOnlyList<WebConsoleLoginProvider> Providers { get; } = WebConsoleLoginProvider.All;
+
+    public async Task<IActionResult> OnGetAsync(string? returnUrl = null, CancellationToken cancellationToken = default)
     {
         if (User.Identity?.IsAuthenticated == true)
         {
-            return LocalRedirect(returnUrl ?? "/");
+            return LocalRedirect(await ResolveAuthenticatedReturnUrlAsync(returnUrl, cancellationToken));
         }
 
         return Page();
     }
 
-    public IActionResult OnGetSignIn(string? returnUrl = null)
+    public async Task<IActionResult> OnGetSignInAsync(string? provider = null, string? returnUrl = null, CancellationToken cancellationToken = default)
     {
         if (User.Identity?.IsAuthenticated == true)
         {
-            return LocalRedirect(returnUrl ?? "/");
+            return LocalRedirect(await ResolveAuthenticatedReturnUrlAsync(returnUrl, cancellationToken));
         }
 
-        var redirectUri = string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl;
-        var properties = new AuthenticationProperties { RedirectUri = redirectUri };
-        return Challenge(properties, OpenIdConnectDefaults.AuthenticationScheme);
+        return BuildChallenge(provider, returnUrl);
     }
 
-    public IActionResult OnPostSignIn(string? returnUrl = null)
+    public async Task<IActionResult> OnPostSignInAsync(string? provider = null, string? returnUrl = null, CancellationToken cancellationToken = default)
     {
         if (User.Identity?.IsAuthenticated == true)
         {
-            return LocalRedirect(returnUrl ?? "/");
+            return LocalRedirect(await ResolveAuthenticatedReturnUrlAsync(returnUrl, cancellationToken));
         }
 
-        var redirectUri = string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl;
-        var properties = new AuthenticationProperties { RedirectUri = redirectUri };
-        return Challenge(properties, OpenIdConnectDefaults.AuthenticationScheme);
+        return BuildChallenge(provider, returnUrl);
     }
 
     public IActionResult OnPostSignOut()
@@ -51,5 +51,37 @@ public sealed class LoginModel : PageModel
             properties,
             CookieAuthenticationDefaults.AuthenticationScheme,
             OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
+    private ChallengeResult BuildChallenge(string? provider, string? returnUrl)
+    {
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = ResolvePostLoginReturnUrl(returnUrl)
+        };
+
+        if (!string.IsNullOrWhiteSpace(provider))
+        {
+            var selectedProvider = WebConsoleLoginProvider.GetOrDefault(provider);
+            properties.Items[WebConsoleLoginProvider.AuthenticationProviderItemKey] = selectedProvider.Id;
+        }
+
+        return Challenge(properties, OpenIdConnectDefaults.AuthenticationScheme);
+    }
+
+    private string ResolvePostLoginReturnUrl(string? returnUrl)
+    {
+        return Url.IsLocalUrl(returnUrl) ? returnUrl! : "/Login";
+    }
+
+    private async Task<string> ResolveAuthenticatedReturnUrlAsync(string? returnUrl, CancellationToken cancellationToken)
+    {
+        if (Url.IsLocalUrl(returnUrl))
+        {
+            return returnUrl!;
+        }
+
+        var context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
+        return ConsoleRoutePaths.OwnerDashboard(context.SelectedOwner);
     }
 }

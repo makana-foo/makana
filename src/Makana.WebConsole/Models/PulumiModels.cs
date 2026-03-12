@@ -9,13 +9,25 @@ public sealed record ServiceUserInfo(
     [property: JsonPropertyName("email")] string? Email
 );
 
+public sealed record ServiceThemeOption(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("stylesheetPath")] string StylesheetPath
+);
+
+public sealed record UpdateUserThemeRequest(
+    [property: JsonPropertyName("theme")] string Theme
+);
+
 public sealed record ServiceUser(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("githubLogin")] string GitHubLogin,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("email")] string? Email,
     [property: JsonPropertyName("avatarUrl")] string AvatarUrl,
-    [property: JsonPropertyName("organizations")] ServiceUserInfo[] Organizations
+    [property: JsonPropertyName("organizations")] ServiceUserInfo[] Organizations,
+    [property: JsonPropertyName("theme")] string? Theme,
+    [property: JsonPropertyName("availableThemes")] ServiceThemeOption[] AvailableThemes
 );
 
 public sealed record StackSummary(
@@ -34,9 +46,9 @@ public sealed record ListStacksResponse(
 );
 
 public sealed record StackConfigValue(
-    [property: JsonPropertyName("string")] string String,
+    [property: JsonPropertyName("stringValue")] string String,
     [property: JsonPropertyName("secret")] bool Secret,
-    [property: JsonPropertyName("object")] bool Object
+    [property: JsonPropertyName("objectValue")] bool Object
 );
 
 public sealed record SelectedUpdateReferenceResponse(
@@ -178,7 +190,8 @@ public sealed record UpdateViewConsoleLine(
     [property: JsonPropertyName("key")] string Key,
     [property: JsonPropertyName("text")] string Text,
     [property: JsonPropertyName("cssClass")] string CssClass,
-    [property: JsonPropertyName("segments")] UpdateViewConsoleSegment[] Segments
+    [property: JsonPropertyName("segments")] UpdateViewConsoleSegment[] Segments,
+    [property: JsonPropertyName("cells")] UpdateViewConsoleCell[]? Cells
 );
 
 public sealed record UpdateViewConsoleSegment(
@@ -186,9 +199,15 @@ public sealed record UpdateViewConsoleSegment(
     [property: JsonPropertyName("cssClass")] string CssClass
 );
 
+public sealed record UpdateViewConsoleCell(
+    [property: JsonPropertyName("cssClass")] string CssClass,
+    [property: JsonPropertyName("segments")] UpdateViewConsoleSegment[] Segments
+);
+
 public sealed record UpdateViewConsoleLineDelta(
     [property: JsonPropertyName("key")] string Key,
     [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("anchorKey")] string? AnchorKey,
     [property: JsonPropertyName("line")] UpdateViewConsoleLine? Line
 );
 

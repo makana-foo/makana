@@ -15,6 +15,11 @@ public sealed record StackConsoleRenderedLine(
     string Key,
     string Text,
     string CssClass,
+    IReadOnlyList<StackConsoleRenderedSegment> Segments,
+    IReadOnlyList<StackConsoleRenderedCell>? Cells = null);
+
+public sealed record StackConsoleRenderedCell(
+    string CssClass,
     IReadOnlyList<StackConsoleRenderedSegment> Segments);
 
 public sealed record StackConsoleRenderedSegment(
@@ -24,4 +29,5 @@ public sealed record StackConsoleRenderedSegment(
 public sealed record StackConsoleRenderedDelta(
     string Key,
     string Action,
+    string? AnchorKey,
     StackConsoleRenderedLine? Line);

@@ -5,12 +5,8 @@
 }
 
 <section>
-    <header>
-        <h1>Deployments</h1>
-        <p class="text-light">This section is a placeholder for deployment history and automation runs.</p>
-    </header>
+    <partial name="_ConsolePageHeader"
+             model='new ConsolePageHeaderViewModel("Deployments", "This section is a placeholder for deployment history and automation runs.")' />
 
-    <article class="card">
-        <p>No deployment features are implemented yet.</p>
-    </article>
+    <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No deployment features are implemented yet.")' />
 </section>

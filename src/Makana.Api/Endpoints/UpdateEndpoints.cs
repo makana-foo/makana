@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+using System.Security.Claims;
 using System.Text.Json;
 using Makana.Api.Contracts;
 using Makana.Api.Realtime;
@@ -14,20 +14,24 @@ namespace Makana.Api.Endpoints;
 
 internal static class UpdateEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapUpdateEndpoints(
         this IEndpointRouteBuilder app,
-        BackendStore store,
+        StackCatalogQueryRepository stackQueries,
+        UpdateCommandRepository updateCommands,
+        UpdateQueryRepository updateQueries,
+        UpdateLogRepository updateLog,
         IStackUpdateNotifier updateNotifier,
-        IUpdateCheckpointJournalingProvider checkpointJournalingProvider)
+        IUpdateCheckpointJournalingProvider checkpointJournalingProvider,
+        EphemeralStateJanitor ephemeralStateJanitor,
+        IdentityRepository identityRepository,
+        CoreEndpoints.OidcSettings oidcSettings,
+        OidcUserInfoClient oidcUserInfoClient)
     {
-        static async Task<bool> RequireInProgressUpdateAsync(
-            BackendStore store,
-            string updateId,
-            CancellationToken cancellationToken)
+        static bool RequireInProgressUpdateAsync(
+            UpdateCommandRepository updateCommands,
+            string updateId)
         {
-            return await store.IsUpdateInProgressAsync(updateId, cancellationToken);
+            return updateCommands.IsUpdateInProgress(updateId);
         }
 
         static IResult UpdateNotInProgressResponse()
@@ -52,7 +56,72 @@ internal static class UpdateEndpoints
         static IResult InvalidEngineEventResponse()
             => Results.BadRequest(new ErrorResponse(400, "engine event must contain exactly one payload", null));
 
+        static bool DeploymentHasManagedResources(string? deploymentJson)
+        {
+            if (string.IsNullOrWhiteSpace(deploymentJson))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(deploymentJson);
+                if (!doc.RootElement.TryGetProperty("resources", out var resourcesElement) ||
+                    resourcesElement.ValueKind != JsonValueKind.Array)
+                {
+                    return false;
+                }
+
+                foreach (var resource in resourcesElement.EnumerateArray())
+                {
+                    if (resource.ValueKind != JsonValueKind.Object ||
+                        !resource.TryGetProperty("type", out var typeElement) ||
+                        typeElement.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    if (!string.Equals(typeElement.GetString(), "pulumi:pulumi:Stack", StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        static Task NotifyStackUpdateChangedWithSequenceAsync(
+            UpdateCommandRepository updateCommands,
+            UpdateLogRepository updateLog,
+            IStackUpdateNotifier updateNotifier,
+            string org,
+            string project,
+            string stack,
+            string updateId,
+            string reason,
+            long? afterSequence,
+            CancellationToken cancellationToken)
+            => NotifyStackUpdateChangedCoreAsync(
+                updateCommands,
+                updateLog,
+                updateNotifier,
+                org,
+                project,
+                stack,
+                updateId,
+                reason,
+                afterSequence,
+                resolveLatestSequence: false,
+                cancellationToken);
+
         static Task NotifyStackUpdateChangedAsync(
+            UpdateCommandRepository updateCommands,
+            UpdateLogRepository updateLog,
             IStackUpdateNotifier updateNotifier,
             string org,
             string project,
@@ -60,15 +129,54 @@ internal static class UpdateEndpoints
             string updateId,
             string reason,
             CancellationToken cancellationToken)
-        {
-            var message = new StackUpdateChangedMessage(
+            => NotifyStackUpdateChangedCoreAsync(
+                updateCommands,
+                updateLog,
+                updateNotifier,
                 org,
                 project,
                 stack,
                 updateId,
                 reason,
+                afterSequence: null,
+                resolveLatestSequence: true,
+                cancellationToken);
+
+        static async Task NotifyStackUpdateChangedCoreAsync(
+            UpdateCommandRepository updateCommands,
+            UpdateLogRepository updateLog,
+            IStackUpdateNotifier updateNotifier,
+            string org,
+            string project,
+            string stack,
+            string updateId,
+            string reason,
+            long? afterSequence,
+            bool resolveLatestSequence,
+            CancellationToken cancellationToken)
+        {
+            var updateContext = updateCommands.GetUpdateContext(updateId);
+            if (updateContext is null)
+            {
+                return;
+            }
+
+            var effectiveAfterSequence = afterSequence;
+            if (resolveLatestSequence)
+            {
+                effectiveAfterSequence = updateLog.GetLatestEventSequence(updateId);
+            }
+
+            var message = new StackUpdateChangedMessage(
+                org,
+                project,
+                stack,
+                updateContext.Value.StackId,
+                updateId,
+                effectiveAfterSequence,
+                reason,
                 DateTimeOffset.UtcNow);
-            return updateNotifier.NotifyChangedAsync(message, cancellationToken);
+            await updateNotifier.NotifyChangedAsync(message, cancellationToken);
         }
 
         static string SerializeEvent(EngineEvent engineEvent)
@@ -88,7 +196,7 @@ internal static class UpdateEndpoints
                 parsed.Add(engineEvent);
             }
 
-            return parsed.ToArray();
+            return [.. parsed];
         }
 
         static bool TryParseContinuationToken(string? continuationToken, out long? afterSequence)
@@ -109,7 +217,8 @@ internal static class UpdateEndpoints
         }
 
         static async Task<ApiGetUpdateEventsResponse> ReadUpdateEventsResponseAsync(
-            BackendStore store,
+            UpdateCommandRepository updateCommands,
+            UpdateLogRepository updateLog,
             string updateId,
             long? afterSequence,
             CancellationToken cancellationToken)
@@ -122,18 +231,18 @@ internal static class UpdateEndpoints
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var page = await store.GetEventPageAsync(updateId, afterSequence, pageSize, cancellationToken);
+                var page = updateLog.GetEventPage(updateId, afterSequence, pageSize);
                 if (page.EventsJson.Count > 0)
                 {
-                    var continuation = await store.IsUpdateInProgressAsync(updateId, cancellationToken)
+                    var continuation = updateCommands.IsUpdateInProgress(updateId)
                         ? (page.LastSequence ?? lastObservedSequence ?? 0).ToString()
                         : null;
                     return new ApiGetUpdateEventsResponse(DeserializeStoredEvents(page.EventsJson), continuation);
                 }
 
-                var latestSequence = await store.GetLatestEventSequenceAsync(updateId, cancellationToken);
+                var latestSequence = updateLog.GetLatestEventSequence(updateId);
                 lastObservedSequence = latestSequence ?? lastObservedSequence;
-                if (!await store.IsUpdateInProgressAsync(updateId, cancellationToken))
+                if (!updateCommands.IsUpdateInProgress(updateId))
                 {
                     return new ApiGetUpdateEventsResponse([], null);
                 }
@@ -150,17 +259,27 @@ internal static class UpdateEndpoints
             return new ApiGetUpdateEventsResponse([], null);
         }
 
-        static async Task<(string? NamespaceId, IResult? Failure)> ResolveNamespaceIdForRouteAsync(
+        async Task<(string? NamespaceId, IResult? Failure)> ResolveNamespaceIdForRouteAsync(
             HttpContext context, NamespaceRoutingHelpers namespaceRoutingHelpers, string org)
         {
-            var userId = context.User.FindFirst(PulumiAuthenticationDefaults.UserIdClaim)?.Value
-                ?? context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var authKind = context.User.FindFirst(PulumiAuthenticationDefaults.AuthKindClaim)?.Value;
+            var userId = await ResolveUserIdAsync(context);
             if (string.IsNullOrWhiteSpace(userId))
             {
                 return (null, Results.Unauthorized());
             }
 
             var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
+            if (string.Equals(authKind, "bearer", StringComparison.OrdinalIgnoreCase))
+            {
+                var login = OidcClaimHelpers.ResolveLogin(context.User);
+                if (!string.IsNullOrWhiteSpace(login) &&
+                    string.Equals(login, org, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (userId, null);
+                }
+            }
+
             var namespaceId = await namespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
                 userId,
                 org,
@@ -173,6 +292,93 @@ internal static class UpdateEndpoints
             return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
         }
 
+        async Task<string?> ResolveUserIdAsync(HttpContext context)
+        {
+            var authKind = context.User.FindFirst(PulumiAuthenticationDefaults.AuthKindClaim)?.Value;
+            var userId = context.User.FindFirst(PulumiAuthenticationDefaults.UserIdClaim)?.Value;
+            if (!string.IsNullOrWhiteSpace(userId))
+            {
+                return userId;
+            }
+
+            if (!string.Equals(authKind, "bearer", StringComparison.OrdinalIgnoreCase))
+            {
+                return context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            }
+
+            var principal = context.User;
+            if (string.IsNullOrWhiteSpace(OidcClaimHelpers.ResolveLogin(principal)))
+            {
+                principal = await oidcUserInfoClient.TryEnrichPrincipalAsync(
+                    context,
+                    principal,
+                    context.RequestAborted) ?? principal;
+            }
+
+            try
+            {
+                var resolvedUserId = await EnsureIdentityFromClaimsAsync(principal, identityRepository, oidcSettings.ProviderKey);
+                if (principal.Identity is ClaimsIdentity identity)
+                {
+                    if (!identity.HasClaim(claim => claim.Type == PulumiAuthenticationDefaults.UserIdClaim))
+                    {
+                        identity.AddClaim(new Claim(PulumiAuthenticationDefaults.UserIdClaim, resolvedUserId));
+                    }
+
+                    var login = OidcClaimHelpers.ResolveLogin(principal);
+                    if (!string.IsNullOrWhiteSpace(login) &&
+                        !identity.HasClaim(claim => claim.Type == ClaimTypes.Name))
+                    {
+                        identity.AddClaim(new Claim(ClaimTypes.Name, login));
+                    }
+                }
+
+                if (context.User.Identity is ClaimsIdentity contextIdentity &&
+                    !contextIdentity.HasClaim(claim => claim.Type == PulumiAuthenticationDefaults.UserIdClaim))
+                {
+                    contextIdentity.AddClaim(new Claim(PulumiAuthenticationDefaults.UserIdClaim, resolvedUserId));
+                }
+
+                return resolvedUserId;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        static Task<string> EnsureIdentityFromClaimsAsync(
+            ClaimsPrincipal principal,
+            IdentityRepository identityRepository,
+            string providerKey)
+        {
+            var login = OidcClaimHelpers.ResolveLogin(principal)
+                ?? throw new InvalidOperationException("Missing OIDC login claim.");
+            var canonicalUserId = OidcClaimHelpers.ResolveCanonicalUserId(principal, providerKey)
+                ?? throw new InvalidOperationException("Missing subject claim.");
+            var userId = identityRepository.GetUserIdByLogin(login) ?? canonicalUserId;
+            var displayName = GetClaim(principal, "name", ClaimTypes.Name) ?? login;
+            var email = GetClaim(principal, "email", ClaimTypes.Email);
+            var avatar = GetClaim(principal, "picture") ?? string.Empty;
+
+            identityRepository.EnsureUser(userId, login, displayName, email, avatar);
+            return Task.FromResult(userId);
+        }
+
+        static string? GetClaim(ClaimsPrincipal principal, params string[] claimTypes)
+        {
+            foreach (var claimType in claimTypes)
+            {
+                var claim = principal.FindFirst(claimType)?.Value;
+                if (!string.IsNullOrWhiteSpace(claim))
+                {
+                    return claim;
+                }
+            }
+
+            return null;
+        }
+
         app.MapGet("/api/stacks/{org}/{project}/{stack}/updates", async (HttpContext context, string org, string project, string stack, bool? includePreviews, EndpointHelpers endpointHelpers, NamespaceRoutingHelpers namespaceRoutingHelpers, CancellationToken cancellationToken) =>
         {
             var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
@@ -181,14 +387,14 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var stackIds = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var stackIds = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (stackIds is null)
             {
                 return Results.NotFound();
             }
 
-            var updates = await store.GetHistoryAsync(stackIds.Value.StackId, includePreviews: true);
-            var previewFlags = await store.GetUpdatePreviewFlagsAsync(updates.Select(static update => update.Id).ToArray(), cancellationToken);
+            var updates = updateQueries.GetHistory(stackIds.Value.StackId, includePreviews: true);
+            var previewFlags = updateQueries.GetUpdatePreviewFlags([.. updates.Select(static update => update.Id)]);
             var updateInfos = updates
                 .Where(update => includePreviews == true || !endpointHelpers.IsPreviewOperation(update.Kind, update.ProgramRequestJson, previewFlags.GetValueOrDefault(update.Id)))
                 .Select(update =>
@@ -203,7 +409,7 @@ internal static class UpdateEndpoints
                     Message: message,
                     Environment: environment,
                     Config: config,
-                    Result: endpointHelpers.NormalizeUpdateStatus(update.Status),
+                    Result: endpointHelpers.NormalizeUpdateResult(update.Status),
                     EndTime: endpointHelpers.ToUnixTimeSeconds(update.CompletedAt),
                     Version: update.Version,
                     UpdateId: update.Id
@@ -220,14 +426,14 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var config = await store.GetStackConfigByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
-            var latest = (await store.GetHistoryAsync(ids.Value.StackId, includePreviews: true)).FirstOrDefault();
+            var config = stackQueries.GetStackConfigByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
+            var latest = updateQueries.GetHistory(ids.Value.StackId, includePreviews: true).FirstOrDefault();
             if (latest == default)
             {
                 return Results.Ok(new LatestUpdateInfo(new UpdateInfo(Config: config)));
@@ -251,7 +457,7 @@ internal static class UpdateEndpoints
                 Message: message,
                 Environment: environment,
                 Config: config,
-                Result: endpointHelpers.NormalizeUpdateStatus(latest.Status),
+                Result: endpointHelpers.NormalizeUpdateResult(latest.Status),
                 EndTime: endpointHelpers.ToUnixTimeSeconds(latest.CompletedAt),
                 Version: latest.Version,
                 UpdateId: latest.Id
@@ -268,13 +474,15 @@ internal static class UpdateEndpoints
             StackOverviewMaterializer stackOverviewMaterializer,
             CancellationToken cancellationToken) =>
         {
+            var decodedProject = Uri.UnescapeDataString(project);
+            var decodedStack = Uri.UnescapeDataString(stack);
             var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
             if (namespaceResolution.Failure is not null)
             {
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, decodedProject, decodedStack);
             if (ids is null)
             {
                 return Results.NotFound();
@@ -292,13 +500,13 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var update = await store.GetUpdateByVersionAsync(ids.Value.StackId, version);
+            var update = updateQueries.GetUpdateByVersion(ids.Value.StackId, version);
             if (update is null)
             {
                 return Results.NotFound();
@@ -316,6 +524,7 @@ internal static class UpdateEndpoints
                 await versionedUpdatePageMaterializer.IsPreviewAsync(update.Value.Id, cancellationToken));
             var config = endpointHelpers.ExtractConfig(update.Value.ProgramRequestJson);
             var (message, environment) = endpointHelpers.ExtractMetadata(update.Value.ProgramRequestJson);
+            var resourcesResponse = await versionedUpdatePageMaterializer.BuildResourcesForVersionAsync(ids.Value.StackId, version, cancellationToken);
             var info = new UpdateInfo(
                 Kind: update.Value.Kind,
                 IsPreview: isPreview,
@@ -323,9 +532,10 @@ internal static class UpdateEndpoints
                 Message: message,
                 Environment: environment,
                 Config: config,
-                Result: endpointHelpers.NormalizeUpdateStatus(update.Value.Status),
+                Result: endpointHelpers.NormalizeUpdateResult(update.Value.Status),
                 EndTime: endpointHelpers.ToUnixTimeSeconds(update.Value.CompletedAt),
                 Version: update.Value.Version,
+                Resources: resourcesResponse?.Resources.Select(static resource => resource.Resource).ToArray(),
                 UpdateId: update.Value.Id
             );
             return Results.Ok(info);
@@ -339,13 +549,13 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var update = await store.GetUpdateByVersionAsync(ids.Value.StackId, version);
+            var update = updateQueries.GetUpdateByVersion(ids.Value.StackId, version);
             if (update is null)
             {
                 return Results.NotFound();
@@ -374,7 +584,7 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
@@ -386,7 +596,7 @@ internal static class UpdateEndpoints
 
         app.MapGet("/api/stacks/{org}/{project}/{stack}/updates/{version}/contents/files", (string org, string project, string stack, int version) =>
         {
-            return Results.Ok(new UpdateContentsFilesResponse(Array.Empty<string>()));
+            return Results.Ok(new UpdateContentsFilesResponse([]));
         });
 
         app.MapGet("/api/stacks/{org}/{project}/{stack}/updates/{version}/contents/file/{*path}", () =>
@@ -403,7 +613,7 @@ internal static class UpdateEndpoints
             }
 
             return await endpointHelpers.CreateUpdateResponseByNamespaceIdAsync(
-                store, namespaceResolution.NamespaceId!, project, stack, "update", request);
+                stackQueries, updateCommands, namespaceResolution.NamespaceId!, project, stack, "update", request);
         }).RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/preview", async (HttpContext context, string org, string project, string stack, UpdateProgramRequest request, EndpointHelpers endpointHelpers, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
@@ -415,7 +625,7 @@ internal static class UpdateEndpoints
             }
 
             return await endpointHelpers.CreateUpdateResponseByNamespaceIdAsync(
-                store, namespaceResolution.NamespaceId!, project, stack, "preview", request);
+                stackQueries, updateCommands, namespaceResolution.NamespaceId!, project, stack, "preview", request);
         }).RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/refresh", async (HttpContext context, string org, string project, string stack, UpdateProgramRequest request, EndpointHelpers endpointHelpers, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
@@ -427,7 +637,7 @@ internal static class UpdateEndpoints
             }
 
             return await endpointHelpers.CreateUpdateResponseByNamespaceIdAsync(
-                store, namespaceResolution.NamespaceId!, project, stack, "refresh", request);
+                stackQueries, updateCommands, namespaceResolution.NamespaceId!, project, stack, "refresh", request);
         }).RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/destroy", async (HttpContext context, string org, string project, string stack, UpdateProgramRequest request, EndpointHelpers endpointHelpers, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
@@ -439,7 +649,7 @@ internal static class UpdateEndpoints
             }
 
             return await endpointHelpers.CreateUpdateResponseByNamespaceIdAsync(
-                store, namespaceResolution.NamespaceId!, project, stack, "destroy", request);
+                stackQueries, updateCommands, namespaceResolution.NamespaceId!, project, stack, "destroy", request);
         }).RequireAuthorization("OrgRouteAccess");
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/update/{updateId}", async (HttpContext context, string org, string project, string stack, string updateId, StartUpdateRequest request, NamespaceRoutingHelpers namespaceRoutingHelpers, CancellationToken cancellationToken) =>
@@ -450,33 +660,36 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var started = await store.StartUpdateAsync(
+            await ephemeralStateJanitor.CancelExpiredUpdatesForStackAsync(ids.Value.StackId, cancellationToken);
+            var started = updateCommands.StartUpdate(
                 updateId,
                 ids.Value.StackId,
                 JsonSerializer.Serialize(request, UpdateEndpointsJsonContext.Default.StartUpdateRequest));
-            if (started.Status == BackendStore.StartUpdateStatus.NotFound)
+            if (started.Status == UpdateStartStatus.NotFound)
             {
                 return Results.NotFound();
             }
 
-            if (started.Status == BackendStore.StartUpdateStatus.Conflict)
+            if (started.Status == UpdateStartStatus.Conflict)
             {
                 return Results.Conflict(new ErrorResponse(409, "another update is already in progress", null));
             }
 
-            if (started.Status != BackendStore.StartUpdateStatus.Started || string.IsNullOrWhiteSpace(started.Token))
+            if (started.Status != UpdateStartStatus.Started || string.IsNullOrWhiteSpace(started.Token))
             {
                 return Results.Conflict(new ErrorResponse(409, "update is not in a startable state", null));
             }
 
             var journalVersion = checkpointJournalingProvider.NegotiateJournalVersion(request.JournalVersion);
             await NotifyStackUpdateChangedAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
@@ -495,33 +708,36 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var started = await store.StartUpdateAsync(
+            await ephemeralStateJanitor.CancelExpiredUpdatesForStackAsync(ids.Value.StackId, cancellationToken);
+            var started = updateCommands.StartUpdate(
                 updateId,
                 ids.Value.StackId,
                 JsonSerializer.Serialize(request, UpdateEndpointsJsonContext.Default.StartUpdateRequest));
-            if (started.Status == BackendStore.StartUpdateStatus.NotFound)
+            if (started.Status == UpdateStartStatus.NotFound)
             {
                 return Results.NotFound();
             }
 
-            if (started.Status == BackendStore.StartUpdateStatus.Conflict)
+            if (started.Status == UpdateStartStatus.Conflict)
             {
                 return Results.Conflict(new ErrorResponse(409, "another update is already in progress", null));
             }
 
-            if (started.Status != BackendStore.StartUpdateStatus.Started || string.IsNullOrWhiteSpace(started.Token))
+            if (started.Status != UpdateStartStatus.Started || string.IsNullOrWhiteSpace(started.Token))
             {
                 return Results.Conflict(new ErrorResponse(409, "update is not in a startable state", null));
             }
 
             var journalVersion = checkpointJournalingProvider.NegotiateJournalVersion(request.JournalVersion);
             await NotifyStackUpdateChangedAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
@@ -535,7 +751,7 @@ internal static class UpdateEndpoints
 
         app.MapGet("/api/stacks/{org}/{project}/{stack}/update/{updateId}", async (string updateId, string? continuationToken, UpdateViewMaterializer updateViewMaterializer, CancellationToken cancellationToken) =>
         {
-            var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+            var updateContext = updateCommands.GetUpdateContext(updateId);
             if (updateContext is null)
             {
                 return Results.NotFound();
@@ -554,7 +770,7 @@ internal static class UpdateEndpoints
         });
         app.MapGet("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}", async (string updateId, string? continuationToken, UpdateViewMaterializer updateViewMaterializer, CancellationToken cancellationToken) =>
         {
-            var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+            var updateContext = updateCommands.GetUpdateContext(updateId);
             if (updateContext is null)
             {
                 return Results.NotFound();
@@ -584,7 +800,7 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
@@ -606,7 +822,7 @@ internal static class UpdateEndpoints
                 return namespaceResolution.Failure;
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
+            var ids = stackQueries.GetStackIdsByNamespaceId(namespaceResolution.NamespaceId!, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
@@ -618,28 +834,42 @@ internal static class UpdateEndpoints
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/update/{updateId}/renew_lease", async (HttpContext context, string updateId, RenewUpdateLeaseRequest request, EndpointHelpers endpointHelpers, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
 
-            return Results.Ok(new RenewUpdateLeaseResponse(endpointHelpers.GetUpdateToken(context) ?? string.Empty));
+            var token = endpointHelpers.GetUpdateToken(context) ?? string.Empty;
+            var expiration = updateCommands.RenewUpdateTokenLease(updateId, token, request.Duration);
+            if (expiration is null)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(new RenewUpdateLeaseResponse(token, expiration.Value));
         })
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPost("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/renew_lease", async (HttpContext context, string updateId, RenewUpdateLeaseRequest request, EndpointHelpers endpointHelpers, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
 
-            return Results.Ok(new RenewUpdateLeaseResponse(endpointHelpers.GetUpdateToken(context) ?? string.Empty));
+            var token = endpointHelpers.GetUpdateToken(context) ?? string.Empty;
+            var expiration = updateCommands.RenewUpdateTokenLease(updateId, token, request.Duration);
+            if (expiration is null)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(new RenewUpdateLeaseResponse(token, expiration.Value));
         })
             .RequireAuthorization("UpdateTokenForRoute");
 
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/update/{updateId}/checkpoint", async (HttpContext context, string updateId, PatchUpdateCheckpointRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -653,7 +883,7 @@ internal static class UpdateEndpoints
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/checkpoint", async (HttpContext context, string updateId, PatchUpdateCheckpointRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -668,7 +898,7 @@ internal static class UpdateEndpoints
 
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/update/{updateId}/checkpointverbatim", async (HttpContext context, string updateId, PatchUpdateCheckpointVerbatimRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -682,7 +912,7 @@ internal static class UpdateEndpoints
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/checkpointverbatim", async (HttpContext context, string updateId, PatchUpdateCheckpointVerbatimRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -697,7 +927,7 @@ internal static class UpdateEndpoints
 
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/update/{updateId}/checkpointdelta", async (HttpContext context, string updateId, PatchUpdateCheckpointDeltaRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -711,7 +941,7 @@ internal static class UpdateEndpoints
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/checkpointdelta", async (HttpContext context, string updateId, PatchUpdateCheckpointDeltaRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -726,7 +956,7 @@ internal static class UpdateEndpoints
 
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/update/{updateId}/journalentries", async (HttpContext context, string updateId, JournalEntriesRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -740,7 +970,7 @@ internal static class UpdateEndpoints
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPatch("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/journalentries", async (HttpContext context, string updateId, JournalEntriesRequest request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -755,7 +985,7 @@ internal static class UpdateEndpoints
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/update/{updateId}/events/batch", async (HttpContext context, string org, string project, string stack, string updateId, ApiEngineEventBatch request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -766,21 +996,27 @@ internal static class UpdateEndpoints
             }
 
             var eventsJson = request.Events.Select(SerializeEvent).ToArray();
-            await store.RecordEventsAsync(updateId, eventsJson, cancellationToken);
-            await NotifyStackUpdateChangedAsync(
+            updateLog.RecordEvents(updateId, eventsJson);
+            var afterSequence = request.Events.Length == 0
+                ? (long?)null
+                : Math.Max(0, request.Events.Min(static ev => ev.Sequence) - 1L);
+            await NotifyStackUpdateChangedWithSequenceAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
                 stack,
                 updateId,
                 "events",
+                afterSequence,
                 cancellationToken);
             return Results.Ok();
         })
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPost("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/events/batch", async (HttpContext context, string org, string project, string stack, string updateId, ApiEngineEventBatch request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -791,14 +1027,20 @@ internal static class UpdateEndpoints
             }
 
             var eventsJson = request.Events.Select(SerializeEvent).ToArray();
-            await store.RecordEventsAsync(updateId, eventsJson, cancellationToken);
-            await NotifyStackUpdateChangedAsync(
+            updateLog.RecordEvents(updateId, eventsJson);
+            var afterSequence = request.Events.Length == 0
+                ? (long?)null
+                : Math.Max(0, request.Events.Min(static ev => ev.Sequence) - 1L);
+            await NotifyStackUpdateChangedWithSequenceAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
                 stack,
                 updateId,
                 "events",
+                afterSequence,
                 cancellationToken);
             return Results.Ok();
         })
@@ -811,7 +1053,7 @@ internal static class UpdateEndpoints
                 return Results.BadRequest(new ErrorResponse(400, "invalid continuation token", null));
             }
 
-            var response = await ReadUpdateEventsResponseAsync(store, updateId, afterSequence, cancellationToken);
+            var response = await ReadUpdateEventsResponseAsync(updateCommands, updateLog, updateId, afterSequence, cancellationToken);
             return Results.Ok(response);
         });
         app.MapGet("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/events", async (string updateId, string? continuationToken, CancellationToken cancellationToken) =>
@@ -821,13 +1063,13 @@ internal static class UpdateEndpoints
                 return Results.BadRequest(new ErrorResponse(400, "invalid continuation token", null));
             }
 
-            var response = await ReadUpdateEventsResponseAsync(store, updateId, afterSequence, cancellationToken);
+            var response = await ReadUpdateEventsResponseAsync(updateCommands, updateLog, updateId, afterSequence, cancellationToken);
             return Results.Ok(response);
         });
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/update/{updateId}/events", async (HttpContext context, string org, string project, string stack, string updateId, EngineEvent request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -837,21 +1079,24 @@ internal static class UpdateEndpoints
                 return InvalidEngineEventResponse();
             }
 
-            await store.RecordEventsAsync(updateId, [SerializeEvent(request)], cancellationToken);
-            await NotifyStackUpdateChangedAsync(
+            updateLog.RecordEvents(updateId, [SerializeEvent(request)]);
+            await NotifyStackUpdateChangedWithSequenceAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
                 stack,
                 updateId,
                 "events",
+                Math.Max(0, request.Sequence - 1L),
                 cancellationToken);
             return Results.Ok();
         })
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPost("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/events", async (HttpContext context, string org, string project, string stack, string updateId, EngineEvent request, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
@@ -861,14 +1106,17 @@ internal static class UpdateEndpoints
                 return InvalidEngineEventResponse();
             }
 
-            await store.RecordEventsAsync(updateId, [SerializeEvent(request)], cancellationToken);
-            await NotifyStackUpdateChangedAsync(
+            updateLog.RecordEvents(updateId, [SerializeEvent(request)]);
+            await NotifyStackUpdateChangedWithSequenceAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
                 stack,
                 updateId,
                 "events",
+                Math.Max(0, request.Sequence - 1L),
                 cancellationToken);
             return Results.Ok();
         })
@@ -876,8 +1124,11 @@ internal static class UpdateEndpoints
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/update/{updateId}/cancel", async (HttpContext context, string org, string project, string stack, string updateId, CancellationToken cancellationToken) =>
         {
-            await store.CancelUpdateAsync(updateId, cancellationToken);
+            await checkpointJournalingProvider.RecoverInterruptedUpdateAsync(updateId, cancellationToken);
+            updateCommands.CancelUpdate(updateId);
             await NotifyStackUpdateChangedAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
@@ -890,8 +1141,11 @@ internal static class UpdateEndpoints
             .RequireAuthorization("ApiToken", "OrgRouteAccess");
         app.MapPost("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/cancel", async (HttpContext context, string org, string project, string stack, string updateId, CancellationToken cancellationToken) =>
         {
-            await store.CancelUpdateAsync(updateId, cancellationToken);
+            await checkpointJournalingProvider.RecoverInterruptedUpdateAsync(updateId, cancellationToken);
+            updateCommands.CancelUpdate(updateId);
             await NotifyStackUpdateChangedAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
@@ -905,34 +1159,54 @@ internal static class UpdateEndpoints
 
         app.MapPost("/api/stacks/{org}/{project}/{stack}/update/{updateId}/complete", async (HttpContext context, string org, string project, string stack, string updateId, CompleteUpdateRequest request, EndpointHelpers endpointHelpers, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
 
-            await store.CompleteUpdateAsync(updateId, request.Status, cancellationToken: cancellationToken);
-            if (string.Equals(request.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+            var isSucceeded = string.Equals(request.Status, "succeeded", StringComparison.OrdinalIgnoreCase);
+            if (!isSucceeded)
+            {
+                await checkpointJournalingProvider.RecoverInterruptedUpdateAsync(updateId, cancellationToken);
+            }
+
+            updateCommands.CompleteUpdate(updateId, request.Status);
+            if (isSucceeded)
             {
                 var materialized = await checkpointJournalingProvider.FinalizeSucceededUpdateAsync(
                     updateId,
                     cancellationToken);
-                var updateContext = await store.GetUpdatePersistenceContextAsync(updateId, cancellationToken);
+                var updateContext = updateCommands.GetUpdatePersistenceContext(updateId);
                 if (!materialized &&
                     updateContext is { Kind: "destroy" } &&
                     !endpointHelpers.IsPreviewProgramRequest(updateContext.Value.ProgramRequestJson))
                 {
-                    var latestDeployment = await store.GetLatestDeploymentAsync(
-                        updateContext.Value.StackId,
-                        cancellationToken);
+                    var latestDeployment = updateQueries.GetLatestDeployment(
+                        updateContext.Value.StackId);
                     var emptyDeployment = endpointHelpers.CreateEmptyDeploymentJson(latestDeployment?.DeploymentJson);
-                    await store.SaveCheckpointAsync(
+                    updateLog.SaveCheckpoint(
                         updateId,
                         emptyDeployment,
-                        updateContext.Value.Version,
-                        cancellationToken);
+                        updateContext.Value.Version);
+                }
+                else if (updateContext is { Kind: "destroy" } &&
+                         !endpointHelpers.IsPreviewProgramRequest(updateContext.Value.ProgramRequestJson))
+                {
+                    var latestDeployment = updateQueries.GetLatestDeployment(
+                        updateContext.Value.StackId);
+                    if (DeploymentHasManagedResources(latestDeployment?.DeploymentJson))
+                    {
+                        var emptyDeployment = endpointHelpers.CreateEmptyDeploymentJson(latestDeployment?.DeploymentJson);
+                        updateLog.SaveCheckpoint(
+                            updateId,
+                            emptyDeployment,
+                            updateContext.Value.Version);
+                    }
                 }
             }
             await NotifyStackUpdateChangedAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,
@@ -945,34 +1219,54 @@ internal static class UpdateEndpoints
             .RequireAuthorization("UpdateTokenForRoute");
         app.MapPost("/api/stacks/{org}/{project}/{stack}/{updateKind}/{updateId}/complete", async (HttpContext context, string org, string project, string stack, string updateId, CompleteUpdateRequest request, EndpointHelpers endpointHelpers, CancellationToken cancellationToken) =>
         {
-            if (!await RequireInProgressUpdateAsync(store, updateId, cancellationToken))
+            if (!RequireInProgressUpdateAsync(updateCommands, updateId))
             {
                 return UpdateNotInProgressResponse();
             }
 
-            await store.CompleteUpdateAsync(updateId, request.Status, cancellationToken: cancellationToken);
-            if (string.Equals(request.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
+            var isSucceeded = string.Equals(request.Status, "succeeded", StringComparison.OrdinalIgnoreCase);
+            if (!isSucceeded)
+            {
+                await checkpointJournalingProvider.RecoverInterruptedUpdateAsync(updateId, cancellationToken);
+            }
+
+            updateCommands.CompleteUpdate(updateId, request.Status);
+            if (isSucceeded)
             {
                 var materialized = await checkpointJournalingProvider.FinalizeSucceededUpdateAsync(
                     updateId,
                     cancellationToken);
-                var updateContext = await store.GetUpdatePersistenceContextAsync(updateId, cancellationToken);
+                var updateContext = updateCommands.GetUpdatePersistenceContext(updateId);
                 if (!materialized &&
                     updateContext is { Kind: "destroy" } &&
                     !endpointHelpers.IsPreviewProgramRequest(updateContext.Value.ProgramRequestJson))
                 {
-                    var latestDeployment = await store.GetLatestDeploymentAsync(
-                        updateContext.Value.StackId,
-                        cancellationToken);
+                    var latestDeployment = updateQueries.GetLatestDeployment(
+                        updateContext.Value.StackId);
                     var emptyDeployment = endpointHelpers.CreateEmptyDeploymentJson(latestDeployment?.DeploymentJson);
-                    await store.SaveCheckpointAsync(
+                    updateLog.SaveCheckpoint(
                         updateId,
                         emptyDeployment,
-                        updateContext.Value.Version,
-                        cancellationToken);
+                        updateContext.Value.Version);
+                }
+                else if (updateContext is { Kind: "destroy" } &&
+                         !endpointHelpers.IsPreviewProgramRequest(updateContext.Value.ProgramRequestJson))
+                {
+                    var latestDeployment = updateQueries.GetLatestDeployment(
+                        updateContext.Value.StackId);
+                    if (DeploymentHasManagedResources(latestDeployment?.DeploymentJson))
+                    {
+                        var emptyDeployment = endpointHelpers.CreateEmptyDeploymentJson(latestDeployment?.DeploymentJson);
+                        updateLog.SaveCheckpoint(
+                            updateId,
+                            emptyDeployment,
+                            updateContext.Value.Version);
+                    }
                 }
             }
             await NotifyStackUpdateChangedAsync(
+                updateCommands,
+                updateLog,
                 updateNotifier,
                 org,
                 project,

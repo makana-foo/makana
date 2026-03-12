@@ -1,0 +1,23 @@
+@page "/account/tokens"
+@model Makana.WebConsole.Pages.Account.TokensModel
+@{
+    ViewData["Title"] = "Access Tokens";
+}
+
+<section>
+    <header>
+        <h1>Access token</h1>
+        <p class="text-light">Use this token with `pulumi login` when the CLI asks for manual token entry.</p>
+    </header>
+
+    <article class="card">
+        <header>
+            <h3>Generated token</h3>
+            <p class="text-light">This token was minted from your current Makana sign-in session.</p>
+        </header>
+        <label data-field>
+            Token
+            <textarea rows="6" readonly>@Model.AccessToken</textarea>
+        </label>
+    </article>
+</section>

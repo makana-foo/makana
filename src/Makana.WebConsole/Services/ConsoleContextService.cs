@@ -20,14 +20,26 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
 
         var personalOwner = ResolvePersonalOwner(user);
         var ownerOptions = BuildOwnerOptions(user, stacks, personalOwner);
-        var selectedOwner = ResolveSelectedOwner(httpContext, ownerOptions, personalOwner);
+        var ownerGroups = BuildOwnerGroups(ownerOptions);
+        var requestedOwner = httpContext.GetRouteValue("owner")?.ToString();
+        var selectedOwner = ResolveSelectedOwner(requestedOwner, ownerOptions, personalOwner);
+        var requestedOwnerIsAuthorized = string.IsNullOrWhiteSpace(requestedOwner) ||
+                                         ownerOptions.Any(option => string.Equals(option.Value, requestedOwner, StringComparison.Ordinal));
         var selectedStacks = stacks
             .Where(stack => string.Equals(stack.OrgName, selectedOwner, StringComparison.Ordinal))
             .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
             .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
             .ToArray();
 
-        var context = new ConsoleNavigationContext(user, selectedOwner, ownerOptions, stacks, selectedStacks);
+        var context = new ConsoleNavigationContext(
+            user,
+            selectedOwner,
+            requestedOwner,
+            requestedOwnerIsAuthorized,
+            ownerOptions,
+            ownerGroups,
+            stacks,
+            selectedStacks);
 
         httpContext.Items[ContextItemKey] = context;
         return context;
@@ -55,13 +67,8 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
 
     private static ConsoleOwnerOption[] BuildOwnerOptions(ServiceUser? user, IReadOnlyList<StackSummary> stacks, string personalOwner)
     {
-        var entries = new List<ConsoleOwnerOption>();
+        var organizationEntries = new List<ConsoleOwnerOption>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        if (seen.Add(personalOwner))
-        {
-            entries.Add(new ConsoleOwnerOption(personalOwner, $"{personalOwner} (personal)", true));
-        }
 
         if (user?.Organizations is not null)
         {
@@ -70,12 +77,14 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
                 var orgName = !string.IsNullOrWhiteSpace(organization.GitHubLogin)
                     ? organization.GitHubLogin
                     : organization.Name;
-                if (string.IsNullOrWhiteSpace(orgName) || !seen.Add(orgName))
+                if (string.IsNullOrWhiteSpace(orgName) ||
+                    string.Equals(orgName, personalOwner, StringComparison.OrdinalIgnoreCase) ||
+                    !seen.Add(orgName))
                 {
                     continue;
                 }
 
-                entries.Add(new ConsoleOwnerOption(orgName, orgName, false));
+                organizationEntries.Add(new ConsoleOwnerOption(orgName, orgName, false));
             }
         }
 
@@ -85,25 +94,55 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
                      .Distinct(StringComparer.Ordinal)
                      .OrderBy(org => org, StringComparer.Ordinal))
         {
-            if (!seen.Add(stackOrg))
+            if (string.Equals(stackOrg, personalOwner, StringComparison.OrdinalIgnoreCase) || !seen.Add(stackOrg))
             {
                 continue;
             }
 
-            entries.Add(new ConsoleOwnerOption(stackOrg, stackOrg, false));
+            organizationEntries.Add(new ConsoleOwnerOption(stackOrg, stackOrg, false));
         }
 
-        return entries
-            .OrderBy(option => option.IsPersonal ? 0 : 1)
-            .ThenBy(option => option.Label, StringComparer.Ordinal)
-            .ToArray();
+        organizationEntries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Label, right.Label));
+
+        var entries = new List<ConsoleOwnerOption>(organizationEntries.Count + 1);
+        entries.AddRange(organizationEntries);
+        entries.Add(new ConsoleOwnerOption(personalOwner, personalOwner, true));
+
+        return [.. entries];
     }
 
-    private static string ResolveSelectedOwner(HttpContext httpContext, IReadOnlyList<ConsoleOwnerOption> ownerOptions, string personalOwner)
+    private static ConsoleOwnerGroup[] BuildOwnerGroups(IReadOnlyList<ConsoleOwnerOption> ownerOptions)
     {
-        var requestedOwner = httpContext.GetRouteValue("owner")?.ToString();
+        var groups = new List<ConsoleOwnerGroup>(2);
+
+        var organizations = ownerOptions
+            .Where(option => !option.IsPersonal)
+            .ToArray();
+        if (organizations.Length > 0)
+        {
+            groups.Add(new ConsoleOwnerGroup("Organizations", organizations));
+        }
+
+        var personal = ownerOptions
+            .Where(option => option.IsPersonal)
+            .ToArray();
+        if (personal.Length > 0)
+        {
+            groups.Add(new ConsoleOwnerGroup("Individual", personal));
+        }
+
+        return [.. groups];
+    }
+
+    private static string ResolveSelectedOwner(string? requestedOwner, IReadOnlyList<ConsoleOwnerOption> ownerOptions, string personalOwner)
+    {
         if (!string.IsNullOrWhiteSpace(requestedOwner)
             && ownerOptions.Any(option => string.Equals(option.Value, requestedOwner, StringComparison.Ordinal)))
+        {
+            return requestedOwner;
+        }
+
+        if (!string.IsNullOrWhiteSpace(requestedOwner))
         {
             return requestedOwner;
         }

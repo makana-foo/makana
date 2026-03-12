@@ -1,0 +1,105 @@
+@using Makana.WebConsole.Models
+
+@if (string.IsNullOrWhiteSpace(HxSwapOob))
+{
+    <div id="@DomId" class="@Line.CssClass">
+        @RenderContents()
+    </div>
+}
+else
+{
+    <div id="@DomId" class="@Line.CssClass" hx-swap-oob="@HxSwapOob">
+        @RenderContents()
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public required UpdateViewConsoleLine Line { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string DomId { get; set; }
+
+    [Parameter]
+    public string? HxSwapOob { get; set; }
+
+    private RenderFragment RenderContents() => @<text>
+        @if (Line.Cells is { Length: > 0 })
+        {
+            foreach (var cell in Line.Cells)
+            {
+                @RenderCell(cell)
+            }
+        }
+        else
+        {
+            foreach (var segment in Line.Segments)
+            {
+                <span class="@segment.CssClass">@segment.Text</span>
+            }
+        }
+    </text>;
+
+    private RenderFragment RenderCell(UpdateViewConsoleCell cell)
+    {
+        var summaryTypeParts = GetSummaryTypeParts(cell);
+
+        return @<text>
+            <span class="@cell.CssClass">
+                @if (summaryTypeParts is { } parts)
+                {
+                    <span class="stack-console-summary-type-content stack-console-summary-type-content--tree">
+                        <span class="stack-console-summary-type-prefix">
+                            @foreach (var segment in parts.PrefixSegments)
+                            {
+                                <span class="@segment.CssClass">@segment.Text</span>
+                            }
+                        </span>
+                        <span class="stack-console-summary-type-text">
+                            @foreach (var segment in parts.TextSegments)
+                            {
+                                <span class="@segment.CssClass">@segment.Text</span>
+                            }
+                        </span>
+                    </span>
+                }
+                else
+                {
+                    foreach (var segment in cell.Segments)
+                    {
+                        <span class="@segment.CssClass">@segment.Text</span>
+                    }
+                }
+            </span>
+        </text>;
+    }
+
+    private static SummaryTypeParts? GetSummaryTypeParts(UpdateViewConsoleCell cell)
+    {
+        if (!cell.CssClass.Contains("stack-console-cell--summary-type", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var prefixSegments = cell.Segments
+            .Where(static segment => segment.CssClass.Contains("stack-console-segment--tree", StringComparison.Ordinal)
+                || segment.CssClass.Contains("stack-console-segment--marker", StringComparison.Ordinal))
+            .ToArray();
+
+        if (prefixSegments.Length == 0)
+        {
+            return null;
+        }
+
+        var textSegments = cell.Segments
+            .Where(static segment => !segment.CssClass.Contains("stack-console-segment--tree", StringComparison.Ordinal)
+                && !segment.CssClass.Contains("stack-console-segment--marker", StringComparison.Ordinal))
+            .ToArray();
+
+        return new SummaryTypeParts(prefixSegments, textSegments);
+    }
+
+    private sealed record SummaryTypeParts(
+        UpdateViewConsoleSegment[] PrefixSegments,
+        UpdateViewConsoleSegment[] TextSegments);
+}

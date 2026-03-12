@@ -1,1 +1,24 @@
+.owner-menu {
+    padding: 0.5rem;
+    list-style: none;
+}
 
+.owner-menu-group + .owner-menu-group,
+.owner-menu-footer {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.owner-menu-heading {
+    padding: 0 0.75rem 0.35rem;
+    color: var(--muted-foreground);
+    font-size: var(--text-7);
+    font-weight: var(--font-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.owner-menu-footer form {
+    margin: 0;
+}

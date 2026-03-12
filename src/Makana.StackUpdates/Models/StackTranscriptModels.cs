@@ -83,7 +83,8 @@ public sealed record StackSummaryViewData(
     IReadOnlyList<StackSummaryResourceViewData> Resources,
     IReadOnlyList<string> OutputLines,
     IReadOnlyList<string> ResourceSummaryLines,
-    string? Duration);
+    string? Duration,
+    bool ShowInfoColumn);
 
 public sealed record StackSummaryResourceViewData(
     string TypeText,

@@ -1,12 +1,14 @@
 using Makana.WebConsole.Models;
 using Makana.WebConsole.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 namespace Makana.WebConsole.Pages.Stacks;
 
 public sealed class DetailsModel(
+    ConsoleContextService consoleContextService,
     PulumiApiClient apiClient,
     IConfiguration configuration,
     ILogger<DetailsModel> logger) : PageModel
@@ -31,6 +33,8 @@ public sealed class DetailsModel(
 
     public StackLivePanelViewModel LivePanel { get; private set; } = StackLivePanelViewModel.Empty(string.Empty, string.Empty, string.Empty);
     public string StackUpdateHubUrl { get; private set; } = string.Empty;
+    public string StackUpdateViewUrl { get; private set; } = string.Empty;
+    public string ApiAccessToken { get; private set; } = string.Empty;
     public bool EnableLiveRefresh => LivePanel.IsInProgress;
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
@@ -40,10 +44,29 @@ public sealed class DetailsModel(
             return RedirectToPage("/Stacks/Index");
         }
 
+        var context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
+        if (context.ShowOwnerRouteNotFound)
+        {
+            return ConsolePageResults.OwnerRouteNotFound(this);
+        }
+
         try
         {
             LivePanel = await BuildLivePanelAsync(cancellationToken);
-            StackUpdateHubUrl = new Uri(new Uri(PulumiApiClient.GetBrowserApiBaseUrl(configuration), UriKind.Absolute), "/hubs/stack-updates").ToString();
+            StackUpdateHubUrl = BuildApiUri("/hubs/stack-updates").ToString();
+            if (!string.IsNullOrWhiteSpace(LivePanel.UpdateId))
+            {
+                StackUpdateViewUrl = BuildApiUri(
+                    $"/api/stacks/{Uri.EscapeDataString(Owner)}/{Uri.EscapeDataString(Project)}/{Uri.EscapeDataString(Stack)}/update/{Uri.EscapeDataString(LivePanel.UpdateId)}/view")
+                    .ToString();
+            }
+
+            ApiAccessToken = await HttpContext.GetTokenAsync(CookieAuthenticationDefaults.AuthenticationScheme, "access_token")
+                ?? string.Empty;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return ConsolePageResults.ConsoleNotFound(this);
         }
         catch (Exception ex)
         {
@@ -51,72 +74,6 @@ public sealed class DetailsModel(
         }
 
         return Page();
-    }
-
-    public async Task<IActionResult> OnGetLiveUpdatePanelAsync(CancellationToken cancellationToken)
-    {
-        if (!InitializeRouteContext())
-        {
-            return BadRequest();
-        }
-
-        try
-        {
-            LivePanel = await BuildLivePanelAsync(cancellationToken);
-            return CreatePartialResult("_LiveUpdatePanel", LivePanel);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed loading live update panel for stack {Stack} in {Owner}/{Project}", Stack, Owner, Project);
-            return CreatePartialResult("_LiveUpdatePanel", StackLivePanelViewModel.Empty(Owner, Project, Stack));
-        }
-    }
-
-    public async Task<IActionResult> OnGetLiveUpdateDeltaAsync(string? continuationToken, CancellationToken cancellationToken)
-    {
-        if (!InitializeRouteContext())
-        {
-            return BadRequest();
-        }
-
-        try
-        {
-            LivePanel = await BuildLivePanelAsync(cancellationToken, continuationToken);
-            if (LivePanel.ShowUpdateHistory)
-            {
-                return CreatePartialResult("_LiveUpdateDelta", LivePanel);
-            }
-
-            var terminalRefresh = !string.IsNullOrWhiteSpace(continuationToken) &&
-                                  string.IsNullOrWhiteSpace(LivePanel.ContinuationToken) &&
-                                  !LivePanel.IsInProgress;
-            if (terminalRefresh)
-            {
-                LivePanel = LivePanel.WithForcedTerminalRefresh();
-            }
-
-            if (LivePanel.UpdateView?.Delta is not { } delta)
-            {
-                return StatusCode(StatusCodes.Status204NoContent);
-            }
-
-            if (!delta.InfoChanged &&
-                !delta.ChangesChanged &&
-                !delta.ConfigurationChanged &&
-                !delta.OutputsChanged &&
-                !delta.ResourcesChanged &&
-                !delta.SummaryChanged)
-            {
-                return StatusCode(StatusCodes.Status204NoContent);
-            }
-
-            return CreatePartialResult("_LiveUpdateDelta", LivePanel);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed loading live update delta for stack {Stack} in {Owner}/{Project}", Stack, Owner, Project);
-            return StatusCode(StatusCodes.Status204NoContent);
-        }
     }
 
     private bool InitializeRouteContext()
@@ -280,12 +237,17 @@ public sealed class DetailsModel(
         }
     }
 
-    private PartialViewResult CreatePartialResult(string viewName, StackLivePanelViewModel model)
-        => new()
+    private Uri BuildApiUri(string path)
+    {
+        var builder = configuration.GetRequiredSection("API_HTTPS").Get<string>() switch
         {
-            ViewName = viewName,
-            ViewData = new ViewDataDictionary<StackLivePanelViewModel>(ViewData, model)
+            string s => new UriBuilder(s),
+            _ => throw new InvalidOperationException("Missing API URL")
         };
+
+        builder.Path = path;
+        return builder.Uri;
+    }
 
     private sealed record ResolvedUpdateReference(
         string UpdateId,

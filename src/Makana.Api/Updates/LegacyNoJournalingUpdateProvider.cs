@@ -8,7 +8,9 @@ using Makana.Api.Storage;
 namespace Makana.Api.Updates;
 
 internal sealed class LegacyNoJournalingUpdateProvider(
-    BackendStore store,
+    UpdateCommandRepository updateCommands,
+    UpdateQueryRepository updateQueries,
+    UpdateLogRepository updateLog,
     EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     public int NegotiateJournalVersion(int? clientMaxJournalVersion)
@@ -22,11 +24,12 @@ internal sealed class LegacyNoJournalingUpdateProvider(
         PatchUpdateCheckpointRequest request,
         CancellationToken cancellationToken)
     {
-        await store.SaveCheckpointAsync(
+        var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
+        updateLog.SaveCheckpoint(
             updateId,
             request.Deployment.GetRawText(),
             request.Version,
-            cancellationToken);
+            schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
 
@@ -35,11 +38,12 @@ internal sealed class LegacyNoJournalingUpdateProvider(
         PatchUpdateCheckpointVerbatimRequest request,
         CancellationToken cancellationToken)
     {
-        await store.SaveCheckpointAsync(
+        var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
+        updateLog.SaveCheckpoint(
             updateId,
-            request.UntypedDeployment.GetRawText(),
+            GetCheckpointDeploymentJson(request.UntypedDeployment),
             request.Version,
-            cancellationToken);
+            schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
 
@@ -48,17 +52,18 @@ internal sealed class LegacyNoJournalingUpdateProvider(
         PatchUpdateCheckpointDeltaRequest request,
         CancellationToken cancellationToken)
     {
-        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+        var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
+        var updateContext = updateCommands.GetUpdateContext(updateId);
         if (updateContext is null)
         {
             return new UpdateMutationResult(UpdateMutationStatus.NotFound);
         }
 
-        var updateCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
+        var updateCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
         var baselineDeployment = updateCheckpoint?.DeploymentJson;
         if (baselineDeployment is null)
         {
-            var latestDeployment = await store.GetLatestDeploymentAsync(updateContext.Value.StackId, cancellationToken);
+            var latestDeployment = updateQueries.GetLatestDeployment(updateContext.Value.StackId);
             baselineDeployment = latestDeployment?.DeploymentJson;
         }
 
@@ -78,7 +83,7 @@ internal sealed class LegacyNoJournalingUpdateProvider(
             return new UpdateMutationResult(UpdateMutationStatus.Conflict, "checkpoint hash mismatch");
         }
 
-        await store.SaveCheckpointAsync(updateId, updatedDeployment, request.Version, cancellationToken);
+        updateLog.SaveCheckpoint(updateId, updatedDeployment, request.Version, schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
 
@@ -102,12 +107,30 @@ internal sealed class LegacyNoJournalingUpdateProvider(
             entriesJson.Add(entries.GetRawText());
         }
 
-        await store.RecordJournalEntriesAsync(updateId, entriesJson, cancellationToken);
+        updateLog.RecordJournalEntries(updateId, entriesJson);
+    }
+
+    public Task<bool> RecoverInterruptedUpdateAsync(string updateId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(false);
     }
 
     public Task<bool> FinalizeSucceededUpdateAsync(string updateId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(false);
+    }
+
+    private static string GetCheckpointDeploymentJson(JsonElement untypedDeployment)
+    {
+        if (untypedDeployment.ValueKind == JsonValueKind.Object &&
+            untypedDeployment.TryGetProperty("deployment", out var deploymentElement) &&
+            deploymentElement.ValueKind == JsonValueKind.Object)
+        {
+            return deploymentElement.GetRawText();
+        }
+
+        return untypedDeployment.GetRawText();
     }
 }

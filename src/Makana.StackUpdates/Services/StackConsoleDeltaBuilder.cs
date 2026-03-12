@@ -16,13 +16,20 @@ public sealed class StackConsoleDeltaBuilder
         {
             if (!previousByKey.TryGetValue(line.Key, out var previous))
             {
-                deltas.Add(new StackConsoleLineDelta(line.Key, StackConsoleLineDeltaAction.Append, line.Sequence, line.Text));
+                deltas.Add(new StackConsoleLineDelta(
+                    line.Key,
+                    GetInsertAction(previousByKey, currentLines, line.Key, out var anchorKey),
+                    line.Sequence,
+                    line.Text,
+                    line.SummarySemantic,
+                    anchorKey));
                 continue;
             }
 
-            if (!string.Equals(previous.Text, line.Text, StringComparison.Ordinal))
+            if (!string.Equals(previous.Text, line.Text, StringComparison.Ordinal) ||
+                !Equals(previous.SummarySemantic, line.SummarySemantic))
             {
-                deltas.Add(new StackConsoleLineDelta(line.Key, StackConsoleLineDeltaAction.Upsert, line.Sequence, line.Text));
+                deltas.Add(new StackConsoleLineDelta(line.Key, StackConsoleLineDeltaAction.Upsert, line.Sequence, line.Text, line.SummarySemantic));
             }
         }
 
@@ -33,12 +40,39 @@ public sealed class StackConsoleDeltaBuilder
                 continue;
             }
 
-            deltas.Add(new StackConsoleLineDelta(line.Key, StackConsoleLineDeltaAction.Delete, line.Sequence, string.Empty));
+            deltas.Add(new StackConsoleLineDelta(line.Key, StackConsoleLineDeltaAction.Delete, line.Sequence, string.Empty, line.SummarySemantic));
         }
 
-        return deltas
-            .OrderBy(static delta => delta.Sequence)
-            .ThenBy(static delta => delta.Key, StringComparer.Ordinal)
-            .ToArray();
+        return deltas;
+    }
+
+    private static StackConsoleLineDeltaAction GetInsertAction(
+        IReadOnlyDictionary<string, StackConsoleLineProjection> previousByKey,
+        IReadOnlyList<StackConsoleLineProjection> currentLines,
+        string key,
+        out string? anchorKey)
+    {
+        anchorKey = null;
+        for (var index = 0; index < currentLines.Count; index++)
+        {
+            if (!string.Equals(currentLines[index].Key, key, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            for (var nextIndex = index + 1; nextIndex < currentLines.Count; nextIndex++)
+            {
+                var candidateKey = currentLines[nextIndex].Key;
+                if (previousByKey.ContainsKey(candidateKey))
+                {
+                    anchorKey = candidateKey;
+                    return StackConsoleLineDeltaAction.InsertBefore;
+                }
+            }
+
+            break;
+        }
+
+        return StackConsoleLineDeltaAction.Append;
     }
 }

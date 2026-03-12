@@ -10,7 +10,7 @@ internal sealed class PulumiTokenAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    BackendStore store) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    IdentityRepository identityRepository) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -40,7 +40,7 @@ internal sealed class PulumiTokenAuthenticationHandler(
 
         if (string.Equals(kind, "token", StringComparison.OrdinalIgnoreCase))
         {
-            var owner = await store.GetApiTokenOwnerAsync(token);
+            var owner = identityRepository.GetApiTokenOwner(token);
             if (owner is null)
             {
                 return AuthenticateResult.Fail("Unknown API token.");
