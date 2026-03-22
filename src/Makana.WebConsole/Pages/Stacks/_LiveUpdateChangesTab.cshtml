@@ -1,6 +1,5 @@
 @model Makana.WebConsole.Models.StackLivePanelViewModel
 @using Makana.WebConsole.Models
-@using Makana.WebConsole.Components
 
 @if (!Model.HasChanges)
 {
@@ -9,36 +8,46 @@
 else
 {
     <ot-tabs class="stack-update-tabs" data-stack-tab-state="@($"{Model.Org}:{Model.Project}:{Model.Stack}:{Model.UpdateId ?? "none"}:changes")">
-        <div role="tablist" class="stack-tablist stack-tablist--end">
+        <div role="tablist" class="hstack justify-end">
             <button type="button" role="tab" aria-selected="true">Summary</button>
             <button type="button" role="tab">Diff</button>
             <button type="button" role="tab">Diagnostic</button>
         </div>
 
         <div role="tabpanel">
-            <div id="live-update-summary-view">
-                <component type="typeof(StackLiveConsoleView)"
-                           render-mode="Static"
-                           param-ViewName="@("summary")"
-                           param-ContainerId="@("live-update-summary-lines")"
-                           param-Lines="Model.SummaryConsoleLines" />
-            </div>
+            <section class="stack-console-block stack-console-block--text" aria-live="polite">
+                <div id="live-update-summary-lines" class="stack-console-lines" data-console-view="summary">
+                    @for (var index = 0; index < Model.SummaryConsoleLines.Count; index++)
+                    {
+                        var line = Model.SummaryConsoleLines[index];
+                        <div id="@StackConsoleDomIds.For("summary", line.Key)" class="@line.CssClass">@foreach (var segment in line.Segments) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+                    }
+                </div>
+            </section>
         </div>
 
         <div role="tabpanel">
-            <component type="typeof(StackLiveConsoleView)"
-                       render-mode="Static"
-                       param-ViewName="@("diff")"
-                       param-ContainerId="@("live-update-diff-lines")"
-                       param-Lines="Model.DiffConsoleLines" />
+            <section class="stack-console-block stack-console-block--text" aria-live="polite">
+                <div id="live-update-diff-lines" class="stack-console-lines" data-console-view="diff">
+                    @for (var index = 0; index < Model.DiffConsoleLines.Count; index++)
+                    {
+                        var line = Model.DiffConsoleLines[index];
+                        <div id="@StackConsoleDomIds.For("diff", line.Key)" class="@line.CssClass">@foreach (var segment in line.Segments) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+                    }
+                </div>
+            </section>
         </div>
 
         <div role="tabpanel">
-            <component type="typeof(StackLiveConsoleView)"
-                       render-mode="Static"
-                       param-ViewName="@("diagnostic")"
-                       param-ContainerId="@("live-update-diagnostic-lines")"
-                       param-Lines="Model.DiagnosticConsoleLines" />
+            <section class="stack-console-block stack-console-block--text" aria-live="polite">
+                <div id="live-update-diagnostic-lines" class="stack-console-lines" data-console-view="diagnostic">
+                    @for (var index = 0; index < Model.DiagnosticConsoleLines.Count; index++)
+                    {
+                        var line = Model.DiagnosticConsoleLines[index];
+                        <div id="@StackConsoleDomIds.For("diagnostic", line.Key)" class="@line.CssClass">@foreach (var segment in line.Segments) {<span class="@segment.CssClass">@segment.Text</span>}</div>
+                    }
+                </div>
+            </section>
         </div>
     </ot-tabs>
 }

@@ -1,8 +1,0 @@
-name: makana
-metadata:
-  template: makana-aca
-services:
-  apphost:
-    language: dotnet
-    project: ./src/Makana.AppHost/Makana.AppHost.csproj
-    host: containerapp

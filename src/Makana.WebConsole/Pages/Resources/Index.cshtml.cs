@@ -14,21 +14,14 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
 
     public int TotalResources { get; private set; }
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         var context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
-        if (context.ShowOwnerRouteNotFound)
-        {
-            return ConsolePageResults.OwnerRouteNotFound(this);
-        }
-
         Owner = context.SelectedOwner;
         Stacks = context.SelectedOwnerStacks
             .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
             .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
             .ToArray();
         TotalResources = Stacks.Sum(stack => stack.ResourceCount ?? 0);
-
-        return Page();
     }
 }

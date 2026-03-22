@@ -1,39 +1,34 @@
-using Htmx;
-using Makana.Compatibility;
-using Makana.WebConsole.Endpoints;
-using Makana.WebConsole.Models;
-using Makana.WebConsole.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.AspNetCore.WebUtilities;
+using Makana.WebConsole.Endpoints;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using Makana.WebConsole.Services;
 using System.Globalization;
-using System.Net.Http.Headers;
+using System.Net.Http;
+using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
 
-const string ReauthenticationRequiredItemKey = "makana.auth.reauthenticate";
-const int ExpirationSkewMinutes = 1;
+static bool IsLiveUpdateHtmxRequest(HttpRequest request)
+{
+    return string.Equals(request.Query["handler"], "LiveUpdateDelta", StringComparison.Ordinal) &&
+           string.Equals(request.Headers["HX-Request"], "true", StringComparison.OrdinalIgnoreCase);
+}
 
 builder.AddServiceDefaults();
 
 builder.Services.AddHttpClient<PulumiApiClient>((sp, client) =>
 {
-    var config = sp.GetRequiredService<IConfiguration>();
-    client.BaseAddress = new("https+http://api");
-    client.DefaultRequestHeaders.Accept.Clear();
-    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(PulumiHeaders.Accept));
-})
-    .AddHttpMessageHandler<PulumiApiAuthHeaderHandler>();
+    PulumiApiClient.ConfigureHttpClient(client, sp.GetRequiredService<IConfiguration>());
+}).AddHttpMessageHandler<PulumiApiAuthHeaderHandler>();
 builder.Services.AddHttpClient<PulumiCliLoginService>((sp, client) =>
 {
-    var config = sp.GetRequiredService<IConfiguration>();
-    client.BaseAddress = new("https+http://api");
-    client.DefaultRequestHeaders.Accept.Clear();
-    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(PulumiHeaders.Accept));
+    PulumiCliLoginService.ConfigureHttpClient(client, sp.GetRequiredService<IConfiguration>());
 });
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
@@ -49,36 +44,42 @@ builder.Services
     })
     .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
     {
-        options.LoginPath = "/login";
-        options.Events.OnValidatePrincipal = async context =>
-        {
-            var expiresAt = context.Properties?.GetTokenValue("expires_at");
-            if (!DateTimeOffset.TryParse(expiresAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var tokenExpiration) ||
-                tokenExpiration > DateTimeOffset.UtcNow.AddMinutes(ExpirationSkewMinutes))
-            {
-                return;
-            }
-
-            context.HttpContext.Items[ReauthenticationRequiredItemKey] = bool.TrueString;
-            context.RejectPrincipal();
-            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        };
+        options.LoginPath = "/Login";
         options.Events.OnRedirectToLogin = context =>
         {
-            var redirectTarget = BuildLoginRedirectUri(context);
-            if (!context.Request.IsHtmx())
+            if (!IsLiveUpdateHtmxRequest(context.Request))
             {
-                context.Response.Redirect(redirectTarget);
+                context.Response.Redirect(context.RedirectUri);
                 return Task.CompletedTask;
             }
 
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.Headers.Append("Vary", HtmxRequestHeaders.Keys.Request);
-            context.Response.Htmx(h => h.Redirect(redirectTarget));
+            context.Response.Headers["X-Makana-Reauth-Redirect"] = context.RedirectUri;
             return Task.CompletedTask;
         };
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(5);
-        options.SlidingExpiration = true;
+        options.Events.OnValidatePrincipal = async context =>
+        {
+            var cookieExpiresUtc = context.Properties?.ExpiresUtc;
+            var tokenExpiresUtc = ResolveTokenExpiresUtc(context.Properties);
+            var effectiveExpiresUtc = tokenExpiresUtc is null
+                ? cookieExpiresUtc
+                : cookieExpiresUtc is null
+                    ? tokenExpiresUtc
+                    : tokenExpiresUtc < cookieExpiresUtc
+                        ? tokenExpiresUtc
+                        : cookieExpiresUtc;
+
+            if (effectiveExpiresUtc is not null && effectiveExpiresUtc > DateTimeOffset.UtcNow.AddMinutes(1))
+            {
+                return;
+            }
+
+            if (effectiveExpiresUtc is not null)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            }
+        };
     })
     .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
     {
@@ -110,19 +111,6 @@ builder.Services
         {
             NameClaimType = "preferred_username"
         };
-        options.Events.OnRedirectToIdentityProvider = context =>
-        {
-            if (context.Properties?.Items.TryGetValue(WebConsoleLoginProvider.AuthenticationProviderItemKey, out var providerId) == true &&
-                !string.IsNullOrWhiteSpace(providerId))
-            {
-                var selectedProvider = WebConsoleLoginProvider.GetOrDefault(providerId);
-                context.ProtocolMessage.SetParameter(
-                    WebConsoleLoginProvider.ChallengeProviderParameterName,
-                    selectedProvider.Id);
-            }
-
-            return Task.CompletedTask;
-        };
         options.Events.OnTicketReceived = context =>
         {
             var idToken = context.Properties?.GetTokenValue("id_token");
@@ -140,12 +128,6 @@ builder.Services
                 new() { Name = "id_token", Value = idToken }
             };
 
-            var expiresAt = context.Properties?.GetTokenValue("expires_at");
-            if (!string.IsNullOrWhiteSpace(expiresAt))
-            {
-                storedTokens.Add(new AuthenticationToken { Name = "expires_at", Value = expiresAt });
-            }
-
             context.Properties?.StoreTokens(storedTokens);
             return Task.CompletedTask;
         };
@@ -162,42 +144,105 @@ builder.Services
         }
     });
 
-static bool ShouldAllowInsecureOidcBackchannel(IHostEnvironment environment, string authority)
+static DateTimeOffset? ResolveTokenExpiresUtc(AuthenticationProperties? properties)
 {
-    if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
+    var expiresAt = properties?.GetTokenValue("expires_at");
+    if (!string.IsNullOrWhiteSpace(expiresAt) &&
+        DateTimeOffset.TryParse(expiresAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedExpiresAt))
     {
-        return true;
+        return parsedExpiresAt;
     }
 
-    return false;
+    return TryReadJwtExpiration(properties?.GetTokenValue("access_token")) ??
+           TryReadJwtExpiration(properties?.GetTokenValue("id_token"));
 }
 
-static string BuildLoginRedirectUri(RedirectContext<CookieAuthenticationOptions> context)
+static DateTimeOffset? TryReadJwtExpiration(string? token)
 {
-    if (!context.HttpContext.Items.ContainsKey(ReauthenticationRequiredItemKey))
+    if (string.IsNullOrWhiteSpace(token))
     {
-        return context.RedirectUri;
+        return null;
     }
 
-    var returnUrl = context.Request.PathBase.Add(context.Request.Path).ToString() + context.Request.QueryString;
-    return QueryHelpers.AddQueryString("/reauthenticate", "returnUrl", returnUrl);
+    var segments = token.Split('.');
+    if (segments.Length < 2)
+    {
+        return null;
+    }
+
+    try
+    {
+        var payloadBytes = DecodeBase64Url(segments[1]);
+        using var json = JsonDocument.Parse(payloadBytes);
+        if (!json.RootElement.TryGetProperty("exp", out var expElement))
+        {
+            return null;
+        }
+
+        long expSeconds;
+        if (expElement.ValueKind == JsonValueKind.Number && expElement.TryGetInt64(out var numericExp))
+        {
+            expSeconds = numericExp;
+        }
+        else if (expElement.ValueKind == JsonValueKind.String &&
+                 long.TryParse(expElement.GetString(), CultureInfo.InvariantCulture, out var stringExp))
+        {
+            expSeconds = stringExp;
+        }
+        else
+        {
+            return null;
+        }
+
+        return DateTimeOffset.FromUnixTimeSeconds(expSeconds);
+    }
+    catch
+    {
+        return null;
+    }
+}
+
+static byte[] DecodeBase64Url(string value)
+{
+    var builder = new StringBuilder(value.Replace('-', '+').Replace('_', '/'));
+    while (builder.Length % 4 != 0)
+    {
+        builder.Append('=');
+    }
+
+    return Convert.FromBase64String(builder.ToString());
+}
+
+static bool ShouldAllowInsecureOidcBackchannel(IHostEnvironment environment, string authority)
+{
+    if (environment.IsProduction())
+    {
+        return false;
+    }
+
+    if (!Uri.TryCreate(authority, UriKind.Absolute, out var uri))
+    {
+        return false;
+    }
+
+    return string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+           uri.Host.EndsWith(".dev.localhost", StringComparison.OrdinalIgnoreCase);
 }
 
 builder.Services.Configure<RouteOptions>(builder.Configuration.GetSection(nameof(RouteOptions)));
 
 builder.Services.AddAuthorization();
 builder.Services.AddRazorPages(options =>
-    {
-        options.Conventions.AuthorizeFolder("/");
-        options.Conventions.AllowAnonymousToPage("/Splash");
-        options.Conventions.AllowAnonymousToPage("/Login");
-        options.Conventions.AllowAnonymousToPage("/Reauthenticate");
-        options.Conventions.AllowAnonymousToPage("/Error");
+{
+    options.Conventions.AuthorizeFolder("/");
+    options.Conventions.AllowAnonymousToPage("/Login");
+    options.Conventions.AllowAnonymousToPage("/Error");
 
-        // Secondary aliases live in conventions; canonical owner-scoped routes are declared directly on
-        // the pages.
-        options.Conventions.AddPageRoute("/Stacks/Details", "/{owner}/stacks/{project}/{stack}/{runType}/{updateRef}");
-    });
+    // Secondary aliases live in conventions; canonical owner-scoped routes are declared directly on
+    // the pages.
+    options.Conventions.AddPageRoute("/Index", "/");
+    options.Conventions.AddPageRoute("/Stacks/Details", "/{owner}/stacks/{project}/{stack}/{runType}/{updateRef}");
+});
 
 var app = builder.Build();
 
@@ -216,14 +261,12 @@ app.UseAuthorization();
 
 app.MapCliLoginEndpoints();
 app.MapAvatarEndpoints();
-app.MapUserPreferenceEndpoints();
 if (app.Environment.IsEnvironment("Testing"))
 {
     app.MapTestAuthEndpoints();
 }
 
 app.MapStaticAssets();
-app.MapRazorPages()
-   .WithStaticAssets();
+app.MapRazorPages().WithStaticAssets();
 
 app.Run();

@@ -1,26 +1,17 @@
-using Makana.WebConsole.Models;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Makana.WebConsole.Models;
 
 namespace Makana.WebConsole.Services;
 
 public sealed class PulumiApiClient(HttpClient httpClient)
 {
-    private static JsonSerializerOptions JsonOptions => JsonSerializerOptions.Web;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<ServiceUser?> GetUserAsync(CancellationToken cancellationToken)
     {
         return await httpClient.GetFromJsonAsync<ServiceUser>("/api/user", JsonOptions, cancellationToken);
-    }
-
-    public async Task SetUserThemeAsync(string theme, CancellationToken cancellationToken)
-    {
-        using var response = await httpClient.PutAsJsonAsync(
-            "/api/user/theme",
-            new UpdateUserThemeRequest(theme),
-            JsonOptions,
-            cancellationToken);
-        response.EnsureSuccessStatusCode();
     }
 
     public async Task<IReadOnlyList<StackSummary>> GetUserStacksAsync(CancellationToken cancellationToken)
@@ -63,5 +54,26 @@ public sealed class PulumiApiClient(HttpClient httpClient)
         }
 
         return await httpClient.GetFromJsonAsync<UpdateViewResponse>(path, JsonOptions, cancellationToken);
+    }
+
+    public static void ConfigureHttpClient(HttpClient client, IConfiguration configuration)
+    {
+        var baseUrl = GetApiBaseUrl(configuration);
+
+        client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+        client.DefaultRequestHeaders.Accept.Clear();
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.pulumi+8"));
+    }
+
+    public static string GetBrowserApiBaseUrl(IConfiguration configuration)
+    {
+        return configuration["PULUMI_API"] ??
+               "http://localhost:8080";
+    }
+
+    private static string GetApiBaseUrl(IConfiguration configuration)
+    {
+        return configuration["PULUMI_API_SERVICE"] ??
+               "http://api";
     }
 }

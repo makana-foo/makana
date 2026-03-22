@@ -5,10 +5,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Makana.WebConsole.Pages.Organizations;
 
-public sealed class IndexModel(
-    ConsoleContextService consoleContextService,
-    PulumiApiClient apiClient,
-    ILogger<IndexModel> logger) : PageModel
+public sealed class IndexModel(PulumiApiClient apiClient, ILogger<IndexModel> logger) : PageModel
 {
     [BindProperty(SupportsGet = true)]
     public string Owner { get; set; } = string.Empty;
@@ -22,12 +19,6 @@ public sealed class IndexModel(
             return RedirectToPage("/Index");
         }
 
-        var context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
-        if (context.ShowOwnerRouteNotFound)
-        {
-            return ConsolePageResults.OwnerRouteNotFound(this);
-        }
-
         try
         {
             var stacks = await apiClient.GetOrganizationStacksAsync(Owner, cancellationToken);
@@ -37,11 +28,6 @@ public sealed class IndexModel(
                 .Select(g => new ProjectSummary(g.Key, g.Count()))
                 .ToArray();
             return Page();
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            Projects = [];
-            return ConsolePageResults.ConsoleNotFound(this);
         }
         catch (Exception ex)
         {

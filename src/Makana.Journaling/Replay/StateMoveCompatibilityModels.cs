@@ -227,7 +227,7 @@ public static class StateMoveCompatibility
         {
             propertyDependencies = resource.PropertyDependencies.ToDictionary(
                 entry => entry.Key,
-                entry => (IReadOnlyList<string>)[.. entry.Value.Where(dependency => !moveSet.Contains(dependency))],
+                entry => (IReadOnlyList<string>)entry.Value.Where(dependency => !moveSet.Contains(dependency)).ToArray(),
                 StringComparer.Ordinal);
         }
 
@@ -345,14 +345,15 @@ public static class StateMoveCompatibility
         {
             propertyDependencies = resource.PropertyDependencies.ToDictionary(
                 entry => entry.Key,
-                entry => (IReadOnlyList<string>)[.. entry.Value
+                entry => (IReadOnlyList<string>)entry.Value
                     .Where(moveSet.Contains)
                     .Select(dependency => RewriteUrn(
                         dependency,
                         destinationParts.Stack,
                         destinationParts.Project,
                         FindOriginalParent(dependency, sourceByUrn),
-                        rewrittenBySourceUrn))],
+                        rewrittenBySourceUrn))
+                    .ToArray(),
                 StringComparer.Ordinal);
         }
 
@@ -626,7 +627,7 @@ public static class StateMoveCompatibility
             Dependencies = resource.Dependencies?.ToArray(),
             PropertyDependencies = resource.PropertyDependencies?.ToDictionary(
                 entry => entry.Key,
-                entry => (IReadOnlyList<string>)[.. entry.Value],
+                entry => (IReadOnlyList<string>)entry.Value.ToArray(),
                 StringComparer.Ordinal),
         };
 

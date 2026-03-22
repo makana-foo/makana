@@ -1,7 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Makana.Api.Endpoints;
 
 internal static class OidcIssuersEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapOidcIssuersEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapMethods("/api/orgs/{organization}/oidc/issuers/{issuerId}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));

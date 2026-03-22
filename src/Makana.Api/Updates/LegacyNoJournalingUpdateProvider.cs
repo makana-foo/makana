@@ -8,9 +8,7 @@ using Makana.Api.Storage;
 namespace Makana.Api.Updates;
 
 internal sealed class LegacyNoJournalingUpdateProvider(
-    UpdateCommandRepository updateCommands,
-    UpdateQueryRepository updateQueries,
-    UpdateLogRepository updateLog,
+    BackendStore store,
     EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     public int NegotiateJournalVersion(int? clientMaxJournalVersion)
@@ -25,10 +23,11 @@ internal sealed class LegacyNoJournalingUpdateProvider(
         CancellationToken cancellationToken)
     {
         var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
-        updateLog.SaveCheckpoint(
+        await store.SaveCheckpointAsync(
             updateId,
             request.Deployment.GetRawText(),
             request.Version,
+            cancellationToken,
             schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
@@ -39,10 +38,11 @@ internal sealed class LegacyNoJournalingUpdateProvider(
         CancellationToken cancellationToken)
     {
         var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
-        updateLog.SaveCheckpoint(
+        await store.SaveCheckpointAsync(
             updateId,
             GetCheckpointDeploymentJson(request.UntypedDeployment),
             request.Version,
+            cancellationToken,
             schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
@@ -53,17 +53,17 @@ internal sealed class LegacyNoJournalingUpdateProvider(
         CancellationToken cancellationToken)
     {
         var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
-        var updateContext = updateCommands.GetUpdateContext(updateId);
+        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
         if (updateContext is null)
         {
             return new UpdateMutationResult(UpdateMutationStatus.NotFound);
         }
 
-        var updateCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
+        var updateCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
         var baselineDeployment = updateCheckpoint?.DeploymentJson;
         if (baselineDeployment is null)
         {
-            var latestDeployment = updateQueries.GetLatestDeployment(updateContext.Value.StackId);
+            var latestDeployment = await store.GetLatestDeploymentAsync(updateContext.Value.StackId, cancellationToken);
             baselineDeployment = latestDeployment?.DeploymentJson;
         }
 
@@ -83,7 +83,7 @@ internal sealed class LegacyNoJournalingUpdateProvider(
             return new UpdateMutationResult(UpdateMutationStatus.Conflict, "checkpoint hash mismatch");
         }
 
-        updateLog.SaveCheckpoint(updateId, updatedDeployment, request.Version, schemaVersion);
+        await store.SaveCheckpointAsync(updateId, updatedDeployment, request.Version, cancellationToken, schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
 
@@ -107,7 +107,7 @@ internal sealed class LegacyNoJournalingUpdateProvider(
             entriesJson.Add(entries.GetRawText());
         }
 
-        updateLog.RecordJournalEntries(updateId, entriesJson);
+        await store.RecordJournalEntriesAsync(updateId, entriesJson, cancellationToken);
     }
 
     public Task<bool> RecoverInterruptedUpdateAsync(string updateId, CancellationToken cancellationToken)

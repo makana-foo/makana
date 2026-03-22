@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Claims;
 using System.Text.Json;
 using Makana.Api.Contracts;
@@ -10,23 +11,17 @@ namespace Makana.Api.Endpoints;
 
 internal static class CoreEndpoints
 {
-    private static readonly ServiceThemeOption[] ThemeOptions =
-    [
-        new("default", "Default", "/css/themes/default.css"),
-        new("island", "Island", "/css/themes/island.css")
-    ];
-
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapCoreEndpoints(
         this IEndpointRouteBuilder app,
-        IdentityRepository identityRepository,
-        StackCatalogQueryRepository stackQueries,
-        UpdateQueryRepository updateQueries,
+        BackendStore store,
         OidcSettings oidcSettings,
         OidcUserInfoClient userInfoClient)
     {
         app.MapGet("/api/user", async (HttpContext context) =>
         {
-            var resolved = await ResolveIdentityAsync(context, identityRepository, userInfoClient, oidcSettings.ProviderKey);
+            var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -35,27 +30,9 @@ internal static class CoreEndpoints
             return Results.Ok(resolved.Value.User);
         });
 
-        app.MapPut("/api/user/theme", async (HttpContext context, UpdateUserThemeRequest request) =>
-        {
-            var resolved = await ResolveIdentityAsync(context, identityRepository, userInfoClient, oidcSettings.ProviderKey);
-            if (resolved is null)
-            {
-                return Results.Unauthorized();
-            }
-
-            var normalizedTheme = NormalizeTheme(request.Theme);
-            if (normalizedTheme is null)
-            {
-                return Results.BadRequest(new ErrorResponse(400, "invalid theme", null));
-            }
-
-            identityRepository.SetUserTheme(resolved.Value.User.Id, normalizedTheme);
-            return Results.NoContent();
-        });
-
         app.MapGet("/api/user/stacks", async (HttpContext context, HttpRequest request, [FromQuery] string? project, [FromQuery(Name = "organization")] string? organization, EndpointHelpers endpointHelpers) =>
         {
-            var resolved = await ResolveIdentityAsync(context, identityRepository, userInfoClient, oidcSettings.ProviderKey);
+            var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -65,16 +42,16 @@ internal static class CoreEndpoints
             var userLogin = resolved.Value.User.GitHubLogin;
             var namespaceIds = await ResolveVisibleNamespaceIdsAsync(
                 context,
-                identityRepository,
+                store,
                 userId,
                 userLogin,
                 organization);
             if (namespaceIds.Count == 0)
             {
-                return Results.Ok(new ListStacksResponse([], null));
+                return Results.Ok(new ListStacksResponse(Array.Empty<StackSummary>(), null));
             }
 
-            var rows = stackQueries.ListStacksByNamespaceIdsDetailed(project, namespaceIds);
+            var rows = await store.ListStacksByNamespaceIdsDetailedAsync(project, namespaceIds);
             var stacks = new List<StackSummary>(rows.Count);
             foreach (var row in rows)
             {
@@ -82,8 +59,8 @@ internal static class CoreEndpoints
                 var tags = row.TagsJson is null
                     ? null
                     : JsonSerializer.Deserialize(row.TagsJson, EndpointHelpersJsonContext.Default.DictionaryStringString);
-                var lastUpdate = stackQueries.GetLatestUpdateTime(row.StackId);
-                var resourceCount = await endpointHelpers.GetResourceCountAsync(updateQueries, row.StackId);
+                var lastUpdate = await store.GetLatestUpdateTimeAsync(row.StackId);
+                var resourceCount = await endpointHelpers.GetResourceCountAsync(store, row.StackId);
                 var link = new StackLinks($"{endpointHelpers.GetBaseUrl(request)}/stacks/{displayOrg}/{row.ProjectName}/{row.Name}");
                 stacks.Add(new StackSummary(
                     $"{displayOrg}/{row.ProjectName}/{row.Name}",
@@ -96,12 +73,12 @@ internal static class CoreEndpoints
                     tags));
             }
 
-            return Results.Ok(new ListStacksResponse([.. stacks], null));
+            return Results.Ok(new ListStacksResponse(stacks.ToArray(), null));
         });
 
         app.MapGet("/api/user/organizations/default", async (HttpContext context) =>
         {
-            var resolved = await ResolveIdentityAsync(context, identityRepository, userInfoClient, oidcSettings.ProviderKey);
+            var resolved = await ResolveIdentityAsync(context, store, userInfoClient, oidcSettings.ProviderKey);
             if (resolved is null)
             {
                 return Results.Unauthorized();
@@ -109,7 +86,7 @@ internal static class CoreEndpoints
 
             var response = new GetDefaultOrganizationResponse(
                 resolved.Value.DefaultOrg,
-                []);
+                Array.Empty<Message>());
             return Results.Ok(response);
         });
 
@@ -149,7 +126,7 @@ internal static class CoreEndpoints
             {
                 resolved = await EnsureIdentityFromClaimsAsync(
                     subjectTokenAuth.Principal,
-                    identityRepository,
+                    store,
                     requestedOrg,
                     oidcSettings.ProviderKey);
             }
@@ -160,7 +137,7 @@ internal static class CoreEndpoints
 
             var expiresIn = ParseExpirationSeconds(form["expiration"].ToString());
             var accessToken = "token-" + Guid.NewGuid().ToString("N");
-            identityRepository.EnsureApiToken(
+            await store.EnsureApiTokenAsync(
                 accessToken,
                 resolved.UserId,
                 resolved.OrgId,
@@ -187,7 +164,7 @@ internal static class CoreEndpoints
 
     private static async Task<ResolvedUser?> ResolveIdentityAsync(
         HttpContext context,
-        IdentityRepository identityRepository,
+        BackendStore store,
         OidcUserInfoClient userInfoClient,
         string providerKey)
     {
@@ -201,7 +178,7 @@ internal static class CoreEndpoints
             {
                 return null;
             }
-            return await BuildResolvedUserAsync(identityRepository, userId, tokenOrgId);
+            return await BuildResolvedUserAsync(store, userId, tokenOrgId);
         }
 
         if (string.Equals(authKind, "bearer", StringComparison.OrdinalIgnoreCase))
@@ -219,10 +196,10 @@ internal static class CoreEndpoints
             {
                 var ensured = await EnsureIdentityFromClaimsAsync(
                     principal,
-                    identityRepository,
+                    store,
                     requestedOrgLogin: null,
                     providerKey);
-                return await BuildResolvedUserAsync(identityRepository, ensured.UserId, ensured.OrgId);
+                return await BuildResolvedUserAsync(store, ensured.UserId, ensured.OrgId);
             }
             catch
             {
@@ -233,18 +210,17 @@ internal static class CoreEndpoints
         return null;
     }
 
-    private static async Task<ResolvedUser?> BuildResolvedUserAsync(IdentityRepository identityRepository, string userId, string? preferredOrgId)
+    private static async Task<ResolvedUser?> BuildResolvedUserAsync(BackendStore store, string userId, string? preferredOrgId)
     {
-        var user = identityRepository.GetUserById(userId);
+        var user = await store.GetUserByIdAsync(userId);
         if (user is null)
         {
             return null;
         }
 
-        var theme = NormalizeTheme(identityRepository.GetUserTheme(userId)) ?? "default";
-        var orgs = identityRepository.GetUserOrgs(userId);
+        var orgs = await store.GetUserOrgsAsync(userId);
         var defaultOrgLogin = !string.IsNullOrWhiteSpace(preferredOrgId)
-            ? identityRepository.GetOrgLoginById(preferredOrgId!)
+            ? await store.GetOrgLoginByIdAsync(preferredOrgId!)
             : null;
         // Personal namespace should remain the default owner for the CLI.
         if (string.IsNullOrWhiteSpace(defaultOrgLogin) ||
@@ -285,10 +261,8 @@ internal static class CoreEndpoints
             Name: user.Value.Name,
             Email: user.Value.Email ?? string.Empty,
             AvatarUrl: user.Value.AvatarUrl,
-            Organizations: [.. orgInfos],
-            Theme: theme,
-            AvailableThemes: ThemeOptions,
-            Identities: [],
+            Organizations: orgInfos.ToArray(),
+            Identities: Array.Empty<string>(),
             SiteAdmin: null,
             TokenInfo: null
         );
@@ -296,22 +270,9 @@ internal static class CoreEndpoints
         return new ResolvedUser(serviceUser, defaultOrgLogin);
     }
 
-    private static bool IsSupportedTheme(string theme)
-        => ThemeOptions.Any(option => string.Equals(option.Id, theme, StringComparison.Ordinal));
-
-    private static string? NormalizeTheme(string? theme)
-    {
-        return theme switch
-        {
-            "default" or "light" or "dark" => "default",
-            "island" or "island-light" or "island-dark" => "island",
-            _ => null
-        };
-    }
-
     private static async Task<IReadOnlyCollection<string>> ResolveVisibleNamespaceIdsAsync(
         HttpContext context,
-        IdentityRepository identityRepository,
+        BackendStore store,
         string userId,
         string userLogin,
         string? organizationFilter)
@@ -319,7 +280,7 @@ internal static class CoreEndpoints
         var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
         if (!string.IsNullOrWhiteSpace(tokenOrgId))
         {
-            var tokenOrgLogin = identityRepository.GetOrgLoginById(tokenOrgId);
+            var tokenOrgLogin = await store.GetOrgLoginByIdAsync(tokenOrgId);
             if (string.IsNullOrWhiteSpace(tokenOrgLogin))
             {
                 return Array.Empty<string>();
@@ -338,7 +299,7 @@ internal static class CoreEndpoints
         }
 
         var namespaceIds = new HashSet<string>(StringComparer.Ordinal) { userId };
-        var orgs = identityRepository.GetUserOrgs(userId);
+        var orgs = await store.GetUserOrgsAsync(userId);
 
         if (string.IsNullOrWhiteSpace(organizationFilter))
         {
@@ -368,32 +329,32 @@ internal static class CoreEndpoints
 
     private static async Task<(string UserId, string? OrgId)> EnsureIdentityFromClaimsAsync(
         ClaimsPrincipal principal,
-        IdentityRepository identityRepository,
+        BackendStore store,
         string? requestedOrgLogin,
         string providerKey)
     {
         var login = BuildLogin(principal);
         var canonicalUserId = OidcClaimHelpers.ResolveCanonicalUserId(principal, providerKey)
             ?? throw new InvalidOperationException("Missing subject claim.");
-        var userId = identityRepository.GetUserIdByLogin(login) ?? canonicalUserId;
+        var userId = await store.GetUserIdByLoginAsync(login) ?? canonicalUserId;
         var displayName = GetClaim(principal, "name", ClaimTypes.Name) ?? login;
         var email = GetClaim(principal, "email", ClaimTypes.Email);
         var avatar = GetClaim(principal, "picture") ?? string.Empty;
 
-        identityRepository.EnsureUser(userId, login, displayName, email, avatar);
+        await store.EnsureUserAsync(userId, login, displayName, email, avatar);
 
         if (string.IsNullOrWhiteSpace(requestedOrgLogin))
         {
             return (userId, null);
         }
 
-        var orgId = identityRepository.GetOrgIdByLogin(requestedOrgLogin!);
+        var orgId = await store.GetOrgIdByLoginAsync(requestedOrgLogin!);
         if (string.IsNullOrWhiteSpace(orgId))
         {
             throw new InvalidOperationException("Organization not found");
         }
 
-        if (!identityRepository.IsUserMemberOfOrgLogin(userId, requestedOrgLogin!) &&
+        if (!await store.IsUserMemberOfOrgLoginAsync(userId, requestedOrgLogin!) &&
             !string.Equals(login, requestedOrgLogin, StringComparison.OrdinalIgnoreCase))
         {
             throw new UnauthorizedAccessException("Organization not found");

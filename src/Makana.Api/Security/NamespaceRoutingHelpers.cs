@@ -2,13 +2,13 @@ using Makana.Api.Storage;
 
 namespace Makana.Api.Security;
 
-internal sealed class NamespaceRoutingHelpers(IdentityRepository identityRepository)
+internal sealed class NamespaceRoutingHelpers(BackendStore store)
 {
     public async Task<string?> ResolveMemberOrgIdFromRouteAsync(
         string userId,
         string routeOwner)
     {
-        var orgs = identityRepository.GetUserOrgs(userId);
+        var orgs = await store.GetUserOrgsAsync(userId);
         foreach (var org in orgs)
         {
             if (string.Equals(org.Login, routeOwner, StringComparison.OrdinalIgnoreCase))
@@ -25,7 +25,7 @@ internal sealed class NamespaceRoutingHelpers(IdentityRepository identityReposit
         string routeOwner,
         string? tokenOrgId)
     {
-        var user = identityRepository.GetUserById(userId);
+        var user = await store.GetUserByIdAsync(userId);
         if (user is null)
         {
             return null;
@@ -33,7 +33,7 @@ internal sealed class NamespaceRoutingHelpers(IdentityRepository identityReposit
 
         if (!string.IsNullOrWhiteSpace(tokenOrgId))
         {
-            var tokenOrgLogin = identityRepository.GetOrgLoginById(tokenOrgId);
+            var tokenOrgLogin = await store.GetOrgLoginByIdAsync(tokenOrgId);
             return !string.IsNullOrWhiteSpace(tokenOrgLogin) &&
                    string.Equals(tokenOrgLogin, routeOwner, StringComparison.OrdinalIgnoreCase)
                 ? tokenOrgId

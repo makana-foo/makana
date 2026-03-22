@@ -1,0 +1,22 @@
+@model Makana.WebConsole.Models.StackChangeFeedEntryViewModel
+
+<article id="@Model.DomId"
+         class="stack-change-feed-entry@(Model.IsError ? " stack-change-feed-entry--error" : string.Empty)"
+         hx-swap-oob="beforeend:#live-update-changes-feed-entries">
+    <div class="stack-change-feed-entry__meta">
+        <span class="stack-change-feed-entry__sequence">#@Model.Sequence</span>
+        <span class="stack-change-feed-entry__kind">@Model.Kind</span>
+        @if (!string.IsNullOrWhiteSpace(Model.Action))
+        {
+            <span class="stack-change-feed-entry__action">@Model.Action</span>
+        }
+    </div>
+    <h5 class="stack-change-feed-entry__title">
+        @if (!string.IsNullOrWhiteSpace(Model.Marker))
+        {
+            <span class="stack-change-feed-entry__marker">@Model.Marker</span>
+        }
+        @Model.Title
+    </h5>
+    <p class="stack-change-feed-entry__detail">@Model.Detail</p>
+</article>

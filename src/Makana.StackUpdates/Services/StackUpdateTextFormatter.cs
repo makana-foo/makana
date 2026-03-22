@@ -8,26 +8,21 @@ namespace Makana.StackUpdates.Services;
 public static class StackUpdateTextFormatter
 {
     private const string PulumiSignatureKey = "4dabf18193072939515e22adb298388d";
+    private const string SecretSignatureValue = "1b47061264138c4ac30d75fd1eb44270";
+    private const string UnknownSignatureValue = "04da6b54-80e4-46f7-96ec-b56ff0331ba9";
 
-    public static IReadOnlyList<StackConsoleLineProjection> BuildSummaryLineProjections(
-        IReadOnlyList<StackTranscriptRow> rows,
-        bool includeFailureDiagnostics = false)
+    public static IReadOnlyList<StackConsoleLineProjection> BuildSummaryLineProjections(IReadOnlyList<StackTranscriptRow> rows)
     {
         var resources = rows.OfType<StackResourceTranscriptRow>().ToArray();
         var summaryData = BuildSummaryViewData(resources, rows);
-        var failureDiagnosticLines = includeFailureDiagnostics
-            ? BuildFirstErrorDiagnosticBlockLines(rows)
-            : [];
-
-        if (summaryData.Resources.Count == 0 && failureDiagnosticLines.Count == 0)
+        if (summaryData.Resources.Count == 0)
         {
             return [new StackConsoleLineProjection("summary:empty", 0, "No changes.")];
         }
 
-        var lines = new List<StackConsoleLineProjection>();
-        if (summaryData.Resources.Count > 0)
+        var lines = new List<StackConsoleLineProjection>
         {
-            lines.Add(new StackConsoleLineProjection(
+            new(
                 "summary:header",
                 0,
                 "     Type                   Name                          Status     Info",
@@ -38,9 +33,8 @@ public static class StackUpdateTextFormatter
                     Name: "Name",
                     Status: "Status",
                     Info: "Info",
-                    HeadingText: null,
-                    ShowInfoColumn: summaryData.ShowInfoColumn)));
-        }
+                    HeadingText: null))
+        };
 
         for (var index = 0; index < summaryData.Resources.Count; index++)
         {
@@ -63,51 +57,10 @@ public static class StackUpdateTextFormatter
                     Name: resource.Name,
                     Status: resource.Status,
                     Info: resource.Info,
-                    HeadingText: null,
-                    ShowInfoColumn: summaryData.ShowInfoColumn)));
+                    HeadingText: null)));
         }
 
         var root = GetRootStack(rows);
-
-        if (failureDiagnosticLines.Count > 0)
-        {
-            var diagnosticsSequence = failureDiagnosticLines[0].Sequence;
-            if (lines.Count > 0)
-            {
-                lines.Add(new StackConsoleLineProjection("summary:diagnostics:spacer", diagnosticsSequence, string.Empty));
-            }
-
-            lines.Add(new StackConsoleLineProjection(
-                "summary:diagnostics:header",
-                diagnosticsSequence,
-                "Diagnostics:",
-                new StackSummaryLineSemantic(
-                    StackSummaryLineKind.SectionHeading,
-                    Tree: null,
-                    TypeText: null,
-                    Name: null,
-                    Status: null,
-                    Info: null,
-                    HeadingText: "Diagnostics:",
-                    ShowInfoColumn: summaryData.ShowInfoColumn)));
-
-            for (var index = 0; index < failureDiagnosticLines.Count; index++)
-            {
-                lines.Add(new StackConsoleLineProjection(
-                    $"summary:diagnostics:{index}",
-                    failureDiagnosticLines[index].Sequence,
-                    failureDiagnosticLines[index].Text,
-                    new StackSummaryLineSemantic(
-                        StackSummaryLineKind.DiagnosticDetail,
-                        Tree: null,
-                        TypeText: null,
-                        Name: null,
-                        Status: null,
-                        Info: null,
-                        HeadingText: failureDiagnosticLines[index].Text,
-                        ShowInfoColumn: summaryData.ShowInfoColumn)));
-            }
-        }
 
         if (summaryData.OutputLines.Count > 0)
         {
@@ -122,8 +75,7 @@ public static class StackUpdateTextFormatter
                     Name: null,
                     Status: null,
                     Info: null,
-                    HeadingText: "Outputs:",
-                    ShowInfoColumn: summaryData.ShowInfoColumn)));
+                    HeadingText: "Outputs:")));
             for (var index = 0; index < summaryData.OutputLines.Count; index++)
             {
                 lines.Add(new StackConsoleLineProjection(
@@ -147,23 +99,13 @@ public static class StackUpdateTextFormatter
                     Name: null,
                     Status: null,
                     Info: null,
-                    HeadingText: "Resources:",
-                    ShowInfoColumn: summaryData.ShowInfoColumn)));
+                    HeadingText: "Resources:")));
             for (var index = 0; index < summaryData.ResourceSummaryLines.Count; index++)
             {
                 lines.Add(new StackConsoleLineProjection(
                     $"summary:resources:{index}",
                     summaryData.Resources.Count > 0 ? resources[^1].Sequence : 0,
-                    summaryData.ResourceSummaryLines[index],
-                    new StackSummaryLineSemantic(
-                        StackSummaryLineKind.SectionDetail,
-                        Tree: null,
-                        TypeText: null,
-                        Name: null,
-                        Status: null,
-                        Info: null,
-                        HeadingText: summaryData.ResourceSummaryLines[index],
-                        ShowInfoColumn: summaryData.ShowInfoColumn)));
+                    summaryData.ResourceSummaryLines[index]));
             }
 
             if (summaryData.Duration is not null)
@@ -180,8 +122,7 @@ public static class StackUpdateTextFormatter
                         Name: null,
                         Status: null,
                         Info: null,
-                        HeadingText: $"Duration: {summaryData.Duration}",
-                        ShowInfoColumn: summaryData.ShowInfoColumn)));
+                        HeadingText: $"Duration: {summaryData.Duration}")));
             }
         }
 
@@ -331,18 +272,13 @@ public static class StackUpdateTextFormatter
     {
         if (resources.Count == 0)
         {
-            return new StackSummaryViewData([], [], [], null, false);
+            return new StackSummaryViewData([], [], [], null);
         }
 
         var orderedResources = resources.ToArray();
         var root = GetRootStack(rows);
         var siblingInfo = BuildSiblingInfo(orderedResources);
-        var resourcesByUrn = orderedResources
-            .Where(static resource => !string.IsNullOrWhiteSpace(resource.ResourceUrn))
-            .ToDictionary(static resource => resource.ResourceUrn!, StringComparer.Ordinal);
         var messageCount = CountSummaryMessages(rows);
-        var errorCount = CountSummaryErrors(rows);
-        var genericRootInfo = messageCount > 0 ? FormatSummaryCount(messageCount, "message") : string.Empty;
 
         var resourceLines = new List<StackSummaryResourceViewData>(orderedResources.Length);
         foreach (var resource in orderedResources)
@@ -350,12 +286,12 @@ public static class StackUpdateTextFormatter
             var status = string.Equals(resource.Operation, "same", StringComparison.OrdinalIgnoreCase)
                 ? string.Empty
                 : resource.Status ?? string.Empty;
-            var info = root is not null && ReferenceEqualsByIdentity(root, resource)
-                ? BuildRootSummaryInfo(messageCount, errorCount)
+            var info = root is not null && ReferenceEqualsByIdentity(root, resource) && messageCount > 0
+                ? $"{messageCount} message"
                 : string.Empty;
 
             resourceLines.Add(new StackSummaryResourceViewData(
-                BuildSummaryTypeColumn(resource, siblingInfo, resourcesByUrn),
+                BuildSummaryTypeColumn(resource, siblingInfo),
                 resource.ResourceName ?? "resource",
                 status,
                 info));
@@ -366,11 +302,7 @@ public static class StackUpdateTextFormatter
         var resourceSummaryLines = summary is not null ? BuildResourceSummaryLines(summary) : [];
         var duration = summary is not null ? ExtractDuration(summary) : null;
 
-        var showInfoColumn = resourceLines
-            .Where((resource, index) => index != 0 || !string.Equals(resource.Info, genericRootInfo, StringComparison.Ordinal))
-            .Any(static resource => !string.IsNullOrWhiteSpace(resource.Info));
-
-        return new StackSummaryViewData(resourceLines, outputLines, resourceSummaryLines, duration, showInfoColumn);
+        return new StackSummaryViewData(resourceLines, outputLines, resourceSummaryLines, duration);
     }
 
     public static string BuildDiagnosticTranscript(
@@ -430,37 +362,22 @@ public static class StackUpdateTextFormatter
         }
     }
 
-    private static IReadOnlyList<(long Sequence, string Text)> BuildFirstErrorDiagnosticBlockLines(IReadOnlyList<StackTranscriptRow> rows)
-    {
-        var diagnostic = rows.OfType<StackDiagnosticTranscriptRow>().FirstOrDefault(static row => row.IsError);
-        if (diagnostic is null)
-        {
-            return [];
-        }
-
-        var lines = new List<(long Sequence, string Text)>();
-        foreach (var line in diagnostic.Message.Split('\n', StringSplitOptions.None))
-        {
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
-
-            lines.Add((diagnostic.Sequence, $"    {line}"));
-        }
-
-        return lines;
-    }
-
     private static string? ExtractSummaryTree(string typeText)
     {
-        var prefixLength = 0;
-        while (prefixLength < typeText.Length && IsSummaryTreeCharacter(typeText[prefixLength]))
+        if (typeText.StartsWith("├─ ", StringComparison.Ordinal) || typeText.StartsWith("└─ ", StringComparison.Ordinal))
         {
-            prefixLength++;
+            return typeText[..3];
         }
 
-        return prefixLength == 0 ? null : typeText[..prefixLength];
+        if (typeText.StartsWith("+ ", StringComparison.Ordinal) ||
+            typeText.StartsWith("- ", StringComparison.Ordinal) ||
+            typeText.StartsWith("~ ", StringComparison.Ordinal) ||
+            typeText.StartsWith("= ", StringComparison.Ordinal))
+        {
+            return typeText[..2];
+        }
+
+        return null;
     }
 
     private static string ExtractSummaryTypeText(string typeText)
@@ -468,9 +385,6 @@ public static class StackUpdateTextFormatter
         var tree = ExtractSummaryTree(typeText);
         return tree is null ? typeText : typeText[tree.Length..];
     }
-
-    private static bool IsSummaryTreeCharacter(char ch)
-        => ch is ' ' or '│' or '├' or '└' or '─' or '+' or '-' or '~' or '=';
 
     private static void AppendIndexedLines(
         List<StackConsoleLineProjection> lines,
@@ -1174,10 +1088,7 @@ public static class StackUpdateTextFormatter
         return info;
     }
 
-    private static string BuildSummaryTypeColumn(
-        StackResourceTranscriptRow resource,
-        IReadOnlyDictionary<string, (int index, int count)> siblingInfo,
-        IReadOnlyDictionary<string, StackResourceTranscriptRow> resourcesByUrn)
+    private static string BuildSummaryTypeColumn(StackResourceTranscriptRow resource, IReadOnlyDictionary<string, (int index, int count)> siblingInfo)
     {
         var type = resource.ResourceType ?? "resource";
         if (string.IsNullOrWhiteSpace(resource.ParentUrn) || resource.ResourceUrn is null || !siblingInfo.TryGetValue(resource.ResourceUrn, out var sibling))
@@ -1185,42 +1096,8 @@ public static class StackUpdateTextFormatter
             return type;
         }
 
-        var prefix = BuildAncestorTreePrefix(resource, siblingInfo, resourcesByUrn);
         var connector = sibling.index == sibling.count - 1 ? "└─ " : "├─ ";
-        return prefix + connector + type;
-    }
-
-    private static string BuildAncestorTreePrefix(
-        StackResourceTranscriptRow resource,
-        IReadOnlyDictionary<string, (int index, int count)> siblingInfo,
-        IReadOnlyDictionary<string, StackResourceTranscriptRow> resourcesByUrn)
-    {
-        if (string.IsNullOrWhiteSpace(resource.ParentUrn))
-        {
-            return string.Empty;
-        }
-
-        var segments = new Stack<string>();
-        var currentParentUrn = resource.ParentUrn;
-        while (!string.IsNullOrWhiteSpace(currentParentUrn) &&
-               resourcesByUrn.TryGetValue(currentParentUrn, out var parent) &&
-               !string.IsNullOrWhiteSpace(parent.ParentUrn))
-        {
-            if (parent.ResourceUrn is not null &&
-                siblingInfo.TryGetValue(parent.ResourceUrn, out var parentSibling) &&
-                parentSibling.index < parentSibling.count - 1)
-            {
-                segments.Push("│  ");
-            }
-            else
-            {
-                segments.Push("   ");
-            }
-
-            currentParentUrn = parent.ParentUrn;
-        }
-
-        return string.Concat(segments);
+        return connector + type;
     }
 
     private static int CountSummaryMessages(IReadOnlyList<StackTranscriptRow> rows)
@@ -1229,27 +1106,6 @@ public static class StackUpdateTextFormatter
         count += rows.OfType<StackDiagnosticTranscriptRow>().Count();
         return count;
     }
-
-    private static int CountSummaryErrors(IReadOnlyList<StackTranscriptRow> rows)
-        => rows.OfType<StackDiagnosticTranscriptRow>().Count(static row => IsErrorSeverity(row.Severity));
-
-    private static bool IsErrorSeverity(string? severity)
-        => !string.IsNullOrWhiteSpace(severity) &&
-           (string.Equals(severity.Trim(), "error", StringComparison.OrdinalIgnoreCase) ||
-            severity.Contains("err", StringComparison.OrdinalIgnoreCase));
-
-    private static string BuildRootSummaryInfo(int messageCount, int errorCount)
-    {
-        if (errorCount > 0)
-        {
-            return FormatSummaryCount(errorCount, "error");
-        }
-
-        return messageCount > 0 ? FormatSummaryCount(messageCount, "message") : string.Empty;
-    }
-
-    private static string FormatSummaryCount(int count, string noun)
-        => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     private static StackResourceTranscriptRow? GetRootStack(IReadOnlyList<StackTranscriptRow> rows)
     {
@@ -1335,7 +1191,39 @@ public static class StackUpdateTextFormatter
            string.Equals(key, PulumiSignatureKey, StringComparison.Ordinal);
 
     private static bool TryFormatSpecialValue(JsonElement value, out string formatted)
-        => PulumiDisplayValueFormatter.TryFormatSpecialValue(value, out formatted);
+    {
+        formatted = string.Empty;
+
+        if (value.ValueKind == JsonValueKind.String &&
+            string.Equals(value.GetString(), UnknownSignatureValue, StringComparison.Ordinal))
+        {
+            formatted = "[unknown]";
+            return true;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (value.TryGetProperty(PulumiSignatureKey, out var signature))
+        {
+            var signatureValue = signature.GetString();
+            if (string.Equals(signatureValue, SecretSignatureValue, StringComparison.Ordinal))
+            {
+                formatted = "[secret]";
+                return true;
+            }
+
+            if (string.Equals(signatureValue, UnknownSignatureValue, StringComparison.Ordinal))
+            {
+                formatted = "[unknown]";
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool ShouldSuppressUnknownPreviewDiff(JsonElement oldValue, JsonElement newValue)
         => !JsonElementEquals(oldValue, newValue) && IsUnknownValue(newValue);

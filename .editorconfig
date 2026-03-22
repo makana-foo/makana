@@ -3,12 +3,3 @@
 
 # IDE0300: Simplify collection initialization
 dotnet_style_prefer_collection_expression = when_types_loosely_match
-
-# DAP015: Untyped parameter
-dotnet_diagnostic.DAP015.severity = error
-
-# DAP017: Non-accessible type
-dotnet_diagnostic.DAP017.severity = error
-
-# IDE0019: Use pattern matching
-dotnet_diagnostic.IDE0019.severity = warning

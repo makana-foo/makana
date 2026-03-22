@@ -18,14 +18,9 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
 
     public IReadOnlyList<StackSummary> RecentStacks { get; private set; } = [];
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         Context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
-        if (Context.ShowOwnerRouteNotFound)
-        {
-            return ConsolePageResults.OwnerRouteNotFound(this);
-        }
-
         Owner = Context.SelectedOwner;
 
         ProjectCount = Context.SelectedOwnerStacks
@@ -38,7 +33,5 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
             .OrderByDescending(stack => stack.LastUpdate ?? 0)
             .Take(8)
             .ToArray();
-
-        return Page();
     }
 }

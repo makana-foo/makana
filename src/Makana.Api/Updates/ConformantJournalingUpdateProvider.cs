@@ -12,9 +12,7 @@ using Microsoft.Data.Sqlite;
 namespace Makana.Api.Updates;
 
 internal sealed class ConformantJournalingUpdateProvider(
-    UpdateCommandRepository updateCommands,
-    UpdateQueryRepository updateQueries,
-    UpdateLogRepository updateLog,
+    BackendStore store,
     EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     private const int SupportedJournalVersion = 1;
@@ -35,10 +33,11 @@ internal sealed class ConformantJournalingUpdateProvider(
         CancellationToken cancellationToken)
     {
         var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
-        updateLog.SaveCheckpoint(
+        await store.SaveCheckpointAsync(
             updateId,
             request.Deployment.GetRawText(),
             request.Version,
+            cancellationToken,
             schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
@@ -118,7 +117,7 @@ internal sealed class ConformantJournalingUpdateProvider(
             entriesJson.Add(entries.GetRawText());
         }
 
-        updateLog.RecordJournalEntries(updateId, entriesJson);
+        await store.RecordJournalEntriesAsync(updateId, entriesJson, cancellationToken);
 
         // Pulumi may emit "write" entries containing full snapshots. Persist the latest
         // immediately when present to improve recovery if the process crashes mid-update.
@@ -129,10 +128,11 @@ internal sealed class ConformantJournalingUpdateProvider(
                 updateId,
                 latestSnapshot.Value.GetRawText(),
                 cancellationToken);
-            updateLog.SaveCheckpoint(
+            await store.SaveCheckpointAsync(
                 updateId,
                 latestSnapshot.Value.GetRawText(),
                 version: 0,
+                cancellationToken,
                 schemaVersion: schemaVersion);
         }
     }
@@ -147,21 +147,21 @@ internal sealed class ConformantJournalingUpdateProvider(
         string updateId,
         CancellationToken cancellationToken)
     {
-        var updateContext = updateCommands.GetUpdateContext(updateId);
+        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
         if (updateContext is null)
         {
             return false;
         }
 
-        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
+        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
         var baselineDeploymentJson = latestCheckpoint?.DeploymentJson;
         if (string.IsNullOrWhiteSpace(baselineDeploymentJson))
         {
-            var latestDeployment = updateQueries.GetLatestDeployment(updateContext.Value.StackId);
+            var latestDeployment = await store.GetLatestDeploymentAsync(updateContext.Value.StackId, cancellationToken);
             baselineDeploymentJson = latestDeployment?.DeploymentJson;
         }
 
-        var journalEntriesJson = updateLog.GetJournalEntries(updateId);
+        var journalEntriesJson = await store.GetJournalEntriesAsync(updateId, cancellationToken);
         var journalEntries = ParseJournalEntries(journalEntriesJson);
         if (journalEntries.Count == 0)
         {
@@ -177,10 +177,11 @@ internal sealed class ConformantJournalingUpdateProvider(
             materializedDeploymentJson,
             cancellationToken);
 
-        updateLog.SaveCheckpoint(
+        await store.SaveCheckpointAsync(
             updateId,
             materializedDeploymentJson,
             updateContext.Value.Version,
+            cancellationToken,
             schemaVersion: schemaVersion);
         return true;
     }
@@ -192,17 +193,17 @@ internal sealed class ConformantJournalingUpdateProvider(
         string requestSignature,
         Func<BaselineDeployment, CheckpointSession> sessionFactory,
         Func<CheckpointSession, CheckpointApplyResult> applyMutation,
-        Func<StoredUpdateCheckpoint, bool> legacyDuplicateMatcher,
+        Func<BackendStore.StoredUpdateCheckpoint, bool> legacyDuplicateMatcher,
         int schemaVersion,
         CancellationToken cancellationToken)
     {
-        var updateContext = updateCommands.GetUpdateContext(updateId);
+        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
         if (updateContext is null)
         {
             return new UpdateMutationResult(UpdateMutationStatus.NotFound);
         }
 
-        var existingAtSequence = updateLog.GetCheckpointBySequenceForUpdate(updateId, sequenceNumber);
+        var existingAtSequence = await store.GetCheckpointBySequenceForUpdateAsync(updateId, sequenceNumber, cancellationToken);
         if (existingAtSequence is not null)
         {
             if (IsDuplicate(existingAtSequence.Value, requestSignature, legacyDuplicateMatcher))
@@ -215,7 +216,7 @@ internal sealed class ConformantJournalingUpdateProvider(
                 $"checkpoint sequence {sequenceNumber} was already applied with different payload");
         }
 
-        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
+        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
         var expectedSequence = (latestCheckpoint?.Sequence ?? 0) + 1;
         if (sequenceNumber != expectedSequence)
         {
@@ -255,12 +256,13 @@ internal sealed class ConformantJournalingUpdateProvider(
 
         try
         {
-            var stored = updateLog.SaveCheckpointWithSequence(
+            var stored = await store.SaveCheckpointWithSequenceAsync(
                 updateId,
                 applyResult.StoredSequenceNumber,
                 applyResult.DeploymentJson,
                 requestVersion,
                 requestSignature,
+                cancellationToken,
                 schemaVersion);
             return stored
                 ? new UpdateMutationResult(UpdateMutationStatus.Ok)
@@ -269,7 +271,7 @@ internal sealed class ConformantJournalingUpdateProvider(
         catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
         {
             // Retry-safe idempotency for concurrent duplicate writes.
-            var checkpoint = updateLog.GetCheckpointBySequenceForUpdate(updateId, sequenceNumber);
+            var checkpoint = await store.GetCheckpointBySequenceForUpdateAsync(updateId, sequenceNumber, cancellationToken);
             if (checkpoint is not null && IsDuplicate(checkpoint.Value, requestSignature, legacyDuplicateMatcher))
             {
                 return new UpdateMutationResult(UpdateMutationStatus.Ok);
@@ -283,7 +285,7 @@ internal sealed class ConformantJournalingUpdateProvider(
 
     private async Task<BaselineDeployment> ResolveBaselineDeploymentAsync(
         string stackId,
-        StoredUpdateCheckpoint? latestCheckpoint,
+        BackendStore.StoredUpdateCheckpoint? latestCheckpoint,
         CancellationToken cancellationToken)
     {
         if (latestCheckpoint is not null)
@@ -293,7 +295,7 @@ internal sealed class ConformantJournalingUpdateProvider(
                 latestCheckpoint.Value.DeploymentJson);
         }
 
-        var latestDeployment = updateQueries.GetLatestDeploymentEnvelope(stackId);
+        var latestDeployment = await store.GetLatestDeploymentEnvelopeAsync(stackId, cancellationToken);
         return new BaselineDeployment(
             LastSequence: 0,
             DeploymentJson: latestDeployment?.DeploymentJson);
@@ -304,17 +306,17 @@ internal sealed class ConformantJournalingUpdateProvider(
         string deploymentJson,
         CancellationToken cancellationToken)
     {
-        var updateContext = updateCommands.GetUpdateContext(updateId);
+        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
         var preferredSchemaVersion = updateContext is null
             ? null
-            : updateQueries.GetLatestDeploymentEnvelope(updateContext.Value.StackId)?.SchemaVersion;
+            : (await store.GetLatestDeploymentEnvelopeAsync(updateContext.Value.StackId, cancellationToken))?.SchemaVersion;
         return DeploymentSchemaPolicy.ResolvePersistedSchemaVersion(deploymentJson, preferredSchemaVersion);
     }
 
     private static bool IsDuplicate(
-        StoredUpdateCheckpoint existingCheckpoint,
+        BackendStore.StoredUpdateCheckpoint existingCheckpoint,
         string requestSignature,
-        Func<StoredUpdateCheckpoint, bool> legacyDuplicateMatcher)
+        Func<BackendStore.StoredUpdateCheckpoint, bool> legacyDuplicateMatcher)
     {
         if (!string.IsNullOrWhiteSpace(existingCheckpoint.RequestSignature))
         {
@@ -581,7 +583,7 @@ internal sealed class ConformantJournalingUpdateProvider(
     {
         var template = ParseJsonNode(baselineDeploymentJson) as JsonObject;
         template ??= ParseJsonNode(endpointHelpers.CreateEmptyDeploymentJson()) as JsonObject;
-        template ??= [];
+        template ??= new JsonObject();
 
         var resources = new JsonArray();
         foreach (var resource in snapshot.Resources)
@@ -872,6 +874,7 @@ internal sealed class ConformantJournalingUpdateProvider(
 
     private static bool TryGetPendingOperations(JsonElement element, out JsonElement operations)
     {
+        operations = default;
         if (element.TryGetProperty("pendingOperations", out operations) &&
             operations.ValueKind == JsonValueKind.Array)
         {

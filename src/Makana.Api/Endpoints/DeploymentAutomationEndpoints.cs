@@ -1,7 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Makana.Api.Endpoints;
 
 internal static class DeploymentAutomationEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapDeploymentAutomationEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));

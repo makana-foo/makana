@@ -1,7 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Makana.Api.Endpoints;
 
 internal static class PolicyEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapPolicyEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapMethods("/api/orgs/{organization}/policygroups/{policyGroup}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));

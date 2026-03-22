@@ -14,14 +14,9 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
 
     public IReadOnlyList<ProjectGroupSummary> Projects { get; private set; } = [];
 
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         Context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
-        if (Context.ShowOwnerRouteNotFound)
-        {
-            return ConsolePageResults.OwnerRouteNotFound(this);
-        }
-
         Owner = Context.SelectedOwner;
 
         Projects = Context.SelectedOwnerStacks
@@ -46,8 +41,6 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
                         .ToArray());
             })
             .ToArray();
-
-        return Page();
     }
 
     private static string? FirstTag(IGrouping<string, StackSummary> group, string key)

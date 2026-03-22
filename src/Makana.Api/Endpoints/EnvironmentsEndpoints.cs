@@ -1,7 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Makana.Api.Endpoints;
 
 internal static class EnvironmentsEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapEnvironmentsEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));

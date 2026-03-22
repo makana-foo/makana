@@ -69,7 +69,7 @@ public sealed class CloudJournaler
     private readonly object gate = new();
     private readonly Channel<PendingJournalWrite> entries;
     private readonly Task worker;
-    private readonly Dictionary<long, Task> pendingElided = [];
+    private readonly Dictionary<long, Task> pendingElided = new();
 
     private bool closed;
     private int activeCalls;

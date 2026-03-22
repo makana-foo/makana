@@ -1,7 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Makana.Api.Endpoints;
 
 internal static class WebhooksEndpoints
 {
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapWebhooksEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapMethods("/api/orgs/{organization}/hooks/{webhookname}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));

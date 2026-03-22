@@ -12,23 +12,9 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
 
     public ConsoleNavigationContext Context { get; private set; } = ConsoleNavigationContext.Empty;
 
-    public bool IsPersonalSettings { get; private set; }
-
-    public IReadOnlyList<ServiceThemeOption> AvailableThemes => Context.User?.AvailableThemes ?? [];
-
-    public string? SelectedTheme => Context.User?.Theme;
-
-    public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
+    public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         Context = await consoleContextService.GetContextAsync(HttpContext, cancellationToken);
-        if (Context.ShowOwnerRouteNotFound)
-        {
-            return ConsolePageResults.OwnerRouteNotFound(this);
-        }
-
         Owner = Context.SelectedOwner;
-        IsPersonalSettings = Context.SelectedOwnerIsPersonal;
-
-        return Page();
     }
 }

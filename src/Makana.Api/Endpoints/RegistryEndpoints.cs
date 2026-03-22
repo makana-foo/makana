@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Makana.Api.Contracts;
 using Makana.Api.Storage;
@@ -6,15 +7,17 @@ namespace Makana.Api.Endpoints;
 
 internal static class RegistryEndpoints
 {
-    public static IEndpointRouteBuilder MapRegistryEndpoints(this IEndpointRouteBuilder app, RegistryRepository registryRepository)
+    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
+    public static IEndpointRouteBuilder MapRegistryEndpoints(this IEndpointRouteBuilder app, BackendStore store)
     {
         app.MapGet("/api/orgs/{org}/policygroups", () =>
-            Results.Ok(new ListPolicyGroupsResponse([])));
+            Results.Ok(new ListPolicyGroupsResponse(Array.Empty<PolicyGroupSummary>())));
 
         app.MapPatch("/api/orgs/{org}/policygroups/{policyGroup}", () => Results.Ok());
 
         app.MapGet("/api/orgs/{org}/policypacks", () =>
-            Results.Ok(new ListPolicyPacksResponse([])));
+            Results.Ok(new ListPolicyPacksResponse(Array.Empty<PolicyPackWithVersions>())));
 
         app.MapPost("/api/orgs/{org}/policypacks", (HttpContext context, EndpointHelpers endpointHelpers) =>
         {
@@ -39,7 +42,7 @@ internal static class RegistryEndpoints
 
         app.MapGet("/api/orgs/{org}/templates", () =>
         {
-            return Results.Ok(new ListOrgTemplatesResponse([], false, false, false));
+            return Results.Ok(new ListOrgTemplatesResponse(new Dictionary<string, PulumiTemplateRemote[]>(), false, false, false));
         });
 
         app.MapGet("/api/orgs/{org}/template/download", () =>
@@ -48,7 +51,7 @@ internal static class RegistryEndpoints
         });
 
         app.MapGet("/api/preview/registry/packages", () =>
-            Results.Ok(new ListPackagesResponse([], null)));
+            Results.Ok(new ListPackagesResponse(Array.Empty<PackageMetadata>(), null)));
 
         app.MapGet("/api/preview/registry/packages/{source}/{publisher}/{name}/versions/{version}",
             (string source, string publisher, string name, string version, HttpContext context, EndpointHelpers endpointHelpers) =>
@@ -83,7 +86,7 @@ internal static class RegistryEndpoints
             async (HttpContext context, string source, string publisher, string name, StartPackagePublishRequest request, EndpointHelpers endpointHelpers) =>
             {
                 var operationId = Guid.NewGuid().ToString("N");
-                registryRepository.CreateRegistryOperation(
+                await store.CreateRegistryOperationAsync(
                     operationId,
                     "package",
                     JsonSerializer.Serialize(request, RegistryEndpointsJsonContext.Default.StartPackagePublishRequest));
@@ -99,14 +102,14 @@ internal static class RegistryEndpoints
         app.MapPost("/api/preview/registry/packages/{source}/{publisher}/{name}/versions/{version}/complete",
             async (CompletePackagePublishRequest request) =>
             {
-                registryRepository.CompleteRegistryOperation(request.OperationId);
+                await store.CompleteRegistryOperationAsync(request.OperationId);
                 return Results.Ok();
             });
 
         app.MapDelete("/api/registry/packages/{source}/{publisher}/{name}/versions/{version}", () => Results.Ok());
 
         app.MapGet("/api/registry/templates", () =>
-            Results.Ok(new ListTemplatesResponse([], null)));
+            Results.Ok(new ListTemplatesResponse(Array.Empty<TemplateMetadata>(), null)));
 
         app.MapGet("/api/registry/templates/{source}/{publisher}/{name}/versions/{version}",
             (string source, string publisher, string name, string version, HttpContext context, EndpointHelpers endpointHelpers) =>
@@ -135,7 +138,7 @@ internal static class RegistryEndpoints
             async (HttpContext context, StartTemplatePublishRequest request, EndpointHelpers endpointHelpers) =>
             {
                 var operationId = Guid.NewGuid().ToString("N");
-                registryRepository.CreateRegistryOperation(
+                await store.CreateRegistryOperationAsync(
                     operationId,
                     "template",
                     JsonSerializer.Serialize(request, RegistryEndpointsJsonContext.Default.StartTemplatePublishRequest));
@@ -147,7 +150,7 @@ internal static class RegistryEndpoints
         app.MapPost("/api/registry/templates/{source}/{publisher}/{name}/versions/{version}/complete",
             async (PublishTemplateVersionCompleteRequest request) =>
             {
-                registryRepository.CompleteRegistryOperation(request.OperationId);
+                await store.CompleteRegistryOperationAsync(request.OperationId);
                 return Results.Ok();
             });
 

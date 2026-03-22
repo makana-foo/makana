@@ -7,8 +7,7 @@ using Makana.StackUpdates.Pulumi;
 namespace Makana.Api.Updates;
 
 internal sealed class VersionedUpdatePageMaterializer(
-    UpdateQueryRepository updateQueries,
-    UpdateLogRepository updateLog,
+    BackendStore store,
     EndpointHelpers endpointHelpers)
 {
     public async Task<UpdateServiceEnvelope?> BuildServiceEnvelopeAsync(
@@ -16,7 +15,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         string updateId,
         CancellationToken cancellationToken)
     {
-        var update = updateQueries.GetUpdateDetails(stackId, updateId);
+        var update = await store.GetUpdateDetailsAsync(stackId, updateId, cancellationToken);
         if (update is null)
         {
             return null;
@@ -59,7 +58,7 @@ internal sealed class VersionedUpdatePageMaterializer(
 
     public async Task<bool> IsPreviewAsync(string updateId, CancellationToken cancellationToken)
     {
-        var previewFlags = updateQueries.GetUpdatePreviewFlags([updateId]);
+        var previewFlags = await store.GetUpdatePreviewFlagsAsync([updateId], cancellationToken);
         return previewFlags.GetValueOrDefault(updateId);
     }
 
@@ -67,7 +66,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         string stackId,
         CancellationToken cancellationToken)
     {
-        var latest = updateQueries.GetHistory(stackId).FirstOrDefault();
+        var latest = (await store.GetHistoryAsync(stackId)).FirstOrDefault();
         if (latest == default)
         {
             return null;
@@ -81,7 +80,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         int version,
         CancellationToken cancellationToken)
     {
-        var update = updateQueries.GetUpdateByVersion(stackId, version);
+        var update = await store.GetUpdateByVersionAsync(stackId, version);
         if (update is null)
         {
             return null;
@@ -99,7 +98,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         string stackId,
         CancellationToken cancellationToken)
     {
-        var latestDeployment = updateQueries.GetLatestDeployment(stackId);
+        var latestDeployment = await store.GetLatestDeploymentAsync(stackId, cancellationToken);
         if (latestDeployment is null)
         {
             return null;
@@ -113,7 +112,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         string stackId,
         CancellationToken cancellationToken)
     {
-        var latestDeployment = updateQueries.GetLatestDeployment(stackId);
+        var latestDeployment = await store.GetLatestDeploymentAsync(stackId, cancellationToken);
         if (latestDeployment is null)
         {
             return null;
@@ -127,7 +126,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         int version,
         CancellationToken cancellationToken)
     {
-        var deployment = updateQueries.GetDeploymentByVersion(stackId, version);
+        var deployment = await store.GetDeploymentByVersionAsync(stackId, version, cancellationToken);
         if (deployment is null)
         {
             return null;
@@ -138,7 +137,7 @@ internal sealed class VersionedUpdatePageMaterializer(
 
     private async Task<int> GetLatestVersionAsync(string stackId)
     {
-        var latest = updateQueries.GetHistory(stackId).FirstOrDefault();
+        var latest = (await store.GetHistoryAsync(stackId)).FirstOrDefault();
         return latest == default ? 0 : latest.Version;
     }
 
@@ -146,7 +145,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         string updateId,
         CancellationToken cancellationToken)
     {
-        var events = updateLog.GetEvents(updateId);
+        var events = await store.GetEventsAsync(updateId, cancellationToken);
         foreach (var eventJson in events.AsEnumerable().Reverse())
         {
             var envelope = JsonSerializer.Deserialize(eventJson, PulumiEngineEventJsonContext.Default.EngineEvent);
@@ -164,7 +163,7 @@ internal sealed class VersionedUpdatePageMaterializer(
         int version,
         CancellationToken cancellationToken)
     {
-        var deployment = updateQueries.GetDeploymentByVersion(stackId, version);
+        var deployment = await store.GetDeploymentByVersionAsync(stackId, version, cancellationToken);
         if (deployment is null)
         {
             return null;
@@ -259,7 +258,7 @@ internal sealed class VersionedUpdatePageMaterializer(
             resources.Add(new StackResourceRecord(resourceElement.Clone()));
         }
 
-        return [.. resources];
+        return resources.ToArray();
     }
 
     private static string? TryReadRegion(IEnumerable<StackResourceRecord> resources)

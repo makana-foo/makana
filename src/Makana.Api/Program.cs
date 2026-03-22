@@ -1,4 +1,5 @@
-using Htmx;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Makana.Api.Endpoints;
 using Makana.Api.Middleware;
 using Makana.Api.Realtime;
@@ -9,9 +10,6 @@ using Makana.StackUpdates.Pulumi;
 using Makana.StackUpdates.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.Extensions.Options;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,36 +17,31 @@ builder.AddServiceDefaults();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    ConfigureJsonSerializerOptions(options.SerializerOptions);
+    options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    options.SerializerOptions.TypeInfoResolverChain.Add(CoreEndpointsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(StackEndpointsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(UpdateEndpointsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(DeploymentEndpointsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(RegistryEndpointsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(ConsoleEndpointsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(SecurityJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(PulumiEngineEventJsonContext.Default);
 });
 
-builder.Services.AddRequestDecompression(/*can optionally limit to gzip here*/);
-builder.Services.AddMemoryCache();
-//builder.Services.AddHttpClient();
-
-builder.Services.AddSingleton<SqliteControlDatabase>(sp =>
+var dbPath = Environment.GetEnvironmentVariable("DOTNET_API_DB");
+if (string.IsNullOrWhiteSpace(dbPath))
 {
-    var config = sp.GetRequiredService<IConfiguration>();
-    var connectionString = config["DOTNET_API_DB"] switch
-    {
-        string dbPath => $"Data Source={dbPath}",
-        _ => throw new ArgumentException("Missing DOTNET_API_DB")
-    };
-    return new SqliteControlDatabase(connectionString);
-});
-builder.Services.AddOptions<EphemeralStateCleanupPolicy>();
-builder.Services.AddSingleton(sp => sp.GetRequiredService<IOptions<EphemeralStateCleanupPolicy>>().Value);
-builder.Services.AddSingleton<StackShardDatabase>();
-builder.Services.AddSingleton<IdentityRepository>();
-builder.Services.AddSingleton<StackCatalogQueryRepository>();
-builder.Services.AddSingleton<StackCatalogCommandRepository>();
-builder.Services.AddSingleton<UpdateCommandRepository>();
-builder.Services.AddSingleton<UpdateQueryRepository>();
-builder.Services.AddSingleton<UpdateLogRepository>();
-builder.Services.AddSingleton<DeploymentRunRepository>();
-builder.Services.AddSingleton<RegistryRepository>();
-builder.Services.AddSingleton<UploadRepository>();
-builder.Services.AddSingleton<MaintenanceRepository>();
+    throw new InvalidOperationException("DOTNET_API_DB is required.");
+}
+var dbDirectory = Path.GetDirectoryName(dbPath);
+if (!string.IsNullOrWhiteSpace(dbDirectory))
+{
+    Directory.CreateDirectory(dbDirectory);
+}
+
+builder.Services.AddSingleton(new Database($"Data Source={dbPath}"));
+builder.Services.AddSingleton<BackendStore>();
 builder.Services.AddSingleton<EndpointHelpers>();
 builder.Services.AddSingleton<NamespaceRoutingHelpers>();
 builder.Services.AddSingleton<ImportUpdateEventFactory>();
@@ -61,17 +54,10 @@ builder.Services.AddSingleton<UpdateViewMaterializer>();
 builder.Services.AddSingleton<StackOverviewMaterializer>();
 builder.Services.AddSingleton<VersionedUpdatePageMaterializer>();
 builder.Services.AddSingleton<IUpdateCheckpointJournalingProvider, ConformantJournalingUpdateProvider>();
-builder.Services.AddSingleton<EphemeralStateJanitor>();
-builder.Services.AddHostedService<EphemeralStateJanitorHostedService>();
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OidcUserInfoClient>();
-builder.Services.AddSignalR(options =>
-{
-    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-})
-    .AddJsonProtocol(options =>
-    {
-        ConfigureJsonSerializerOptions(options.PayloadSerializerOptions);
-    });
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<IStackUpdateNotifier, SignalRStackUpdateNotifier>();
 
 var oidcProvider = builder.Configuration["OIDC_PROVIDER"] ?? "oidc";
@@ -83,10 +69,6 @@ var oidcApiAudience = builder.Configuration["OIDC_API_AUDIENCE"]
     ?? throw new InvalidOperationException("OIDC_API_AUDIENCE is required for API authentication.");
 var oidcSubjectTokenAudience = builder.Configuration["OIDC_SUBJECT_TOKEN_AUDIENCE"]
     ?? throw new InvalidOperationException("OIDC_SUBJECT_TOKEN_AUDIENCE is required for subject-token validation.");
-var webConsoleCorsOrigins = builder.Configuration
-    .GetSection("Cors")
-    .GetSection("AllowedOrigins")
-    .Get<string[]?>();
 
 builder.Services
     .AddAuthentication(options =>
@@ -99,14 +81,8 @@ builder.Services
     {
         options.ForwardDefaultSelector = context =>
         {
-            string? auth = context.Request.Headers.Authorization;
-            if (auth?.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) is true)
-            {
-                return PulumiAuthenticationDefaults.OidcApiBearerScheme;
-            }
-
-            if (context.Request.Path.StartsWithSegments("/hubs/stack-updates") &&
-                !string.IsNullOrWhiteSpace(context.Request.Query["access_token"]))
+            var auth = context.Request.Headers.Authorization.ToString();
+            if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 return PulumiAuthenticationDefaults.OidcApiBearerScheme;
             }
@@ -136,47 +112,27 @@ builder.Services
         PulumiAuthenticationDefaults.Scheme,
         _ => { });
 
-builder.Services.AddAuthorizationBuilder()
-    .SetFallbackPolicy(new AuthorizationPolicyBuilder()
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
-        .Build())
-    .AddPolicy("ApiToken", policy =>
+        .Build();
+    options.AddPolicy("ApiToken", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.AddRequirements(new ApiTokenRequirement());
-    })
-    .AddPolicy("UpdateTokenForRoute", policy =>
+    });
+    options.AddPolicy("UpdateTokenForRoute", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.AddRequirements(new UpdateTokenForRouteRequirement());
-    })
-    .AddPolicy("OrgRouteAccess", policy =>
+    });
+    options.AddPolicy("OrgRouteAccess", policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.AddRequirements(new OrgRouteAccessRequirement());
     });
-
-const string WebConsoleCorsPolicy = "WebConsoleCors";
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy(
-        WebConsoleCorsPolicy,
-        policy =>
-        {
-            if (webConsoleCorsOrigins is not { Length: > 0 })
-            {
-                return;
-            }
-
-            policy
-                .WithOrigins(webConsoleCorsOrigins)
-                .AllowAnyMethod()
-                .AllowCredentials()
-                .AllowAnyHeader()
-                .WithExposedHeaders(HtmxResponseHeaders.Keys.All);
-        });
 });
-
 builder.Services.AddSingleton<IAuthorizationHandler, ApiTokenAuthorizationHandler>();
 builder.Services.AddSingleton<IAuthorizationHandler, UpdateTokenForRouteAuthorizationHandler>();
 builder.Services.AddSingleton<IAuthorizationHandler, OrgRouteAccessAuthorizationHandler>();
@@ -186,53 +142,36 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
-var database = app.Services.GetRequiredService<SqliteControlDatabase>();
-database.Initialize();
-var identityRepository = app.Services.GetRequiredService<IdentityRepository>();
+var database = app.Services.GetRequiredService<Database>();
+await database.InitializeAsync();
+var store = app.Services.GetRequiredService<BackendStore>();
 
-var secretKey = identityRepository.GetOrCreateSecretKey();
+var secretKey = await store.GetOrCreateSecretKeyAsync();
 var oidcSettings = new CoreEndpoints.OidcSettings(
     ProviderKey: normalizedOidcProvider);
 
 app.UsePulumiMediaType();
-app.UseRequestDecompression();
-app.UseCors(WebConsoleCorsPolicy);
-app.UseAuthentication();
-app.UseAuthorization();
+app.UseGzipRequestDecompression();
+app.UseWhen(
+    context => context.Request.Path.StartsWithSegments("/api"),
+    branch =>
+    {
+        branch.UseAuthentication();
+        branch.UseAuthorization();
+    });
 
 // Endpoint registration uses Minimal API Delegate overloads that are annotated as
 // requiring dynamic code/unreferenced code. Scope suppression narrowly to startup.
 #pragma warning disable IL2026, IL3050
-app.MapCoreEndpoints(
-    identityRepository,
-    app.Services.GetRequiredService<StackCatalogQueryRepository>(),
-    app.Services.GetRequiredService<UpdateQueryRepository>(),
-    oidcSettings,
-    app.Services.GetRequiredService<OidcUserInfoClient>());
-app.MapStackEndpoints(
-    app.Services.GetRequiredService<StackCatalogQueryRepository>(),
-    app.Services.GetRequiredService<StackCatalogCommandRepository>(),
-    app.Services.GetRequiredService<UpdateCommandRepository>(),
-    app.Services.GetRequiredService<UpdateQueryRepository>(),
-    app.Services.GetRequiredService<UpdateLogRepository>(),
-    secretKey);
+app.MapCoreEndpoints(store, oidcSettings, app.Services.GetRequiredService<OidcUserInfoClient>());
+app.MapStackEndpoints(store, secretKey);
 app.MapUpdateEndpoints(
-    app.Services.GetRequiredService<StackCatalogQueryRepository>(),
-    app.Services.GetRequiredService<UpdateCommandRepository>(),
-    app.Services.GetRequiredService<UpdateQueryRepository>(),
-    app.Services.GetRequiredService<UpdateLogRepository>(),
+    store,
     app.Services.GetRequiredService<IStackUpdateNotifier>(),
-    app.Services.GetRequiredService<IUpdateCheckpointJournalingProvider>(),
-    app.Services.GetRequiredService<EphemeralStateJanitor>(),
-    identityRepository,
-    oidcSettings,
-    app.Services.GetRequiredService<OidcUserInfoClient>());
-app.MapDeploymentEndpoints(
-    app.Services.GetRequiredService<StackCatalogQueryRepository>(),
-    app.Services.GetRequiredService<DeploymentRunRepository>(),
-    secretKey);
-app.MapRegistryEndpoints(app.Services.GetRequiredService<RegistryRepository>());
-app.MapUploadEndpoints(app.Services.GetRequiredService<UploadRepository>());
+    app.Services.GetRequiredService<IUpdateCheckpointJournalingProvider>());
+app.MapDeploymentEndpoints(store, secretKey);
+app.MapRegistryEndpoints(store);
+app.MapUploadEndpoints(store);
 app.MapConsoleEndpoints();
 app.MapAiTasksEndpoints();
 app.MapAuditLogsEndpoints();
@@ -260,18 +199,4 @@ static string NormalizeProviderKey(string provider)
 {
     var value = provider.Trim().ToLowerInvariant();
     return string.IsNullOrWhiteSpace(value) ? "oidc" : value;
-}
-
-static void ConfigureJsonSerializerOptions(JsonSerializerOptions options)
-{
-    options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-    options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-    options.TypeInfoResolverChain.Add(CoreEndpointsJsonContext.Default);
-    options.TypeInfoResolverChain.Add(StackEndpointsJsonContext.Default);
-    options.TypeInfoResolverChain.Add(UpdateEndpointsJsonContext.Default);
-    options.TypeInfoResolverChain.Add(DeploymentEndpointsJsonContext.Default);
-    options.TypeInfoResolverChain.Add(RegistryEndpointsJsonContext.Default);
-    options.TypeInfoResolverChain.Add(ConsoleEndpointsJsonContext.Default);
-    options.TypeInfoResolverChain.Add(SecurityJsonContext.Default);
-    options.TypeInfoResolverChain.Add(PulumiEngineEventJsonContext.Default);
 }

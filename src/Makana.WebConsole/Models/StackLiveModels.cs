@@ -109,7 +109,7 @@ public sealed record StackLivePanelViewModel(
         Overview?.History is { Length: > 0 } overviewHistory
             ? overviewHistory.Select(MapUpdateHistoryEntry).ToArray()
             : UpdateView?.History is { Length: > 0 } history
-            ? [.. history.Select(MapUpdateHistoryEntry)]
+            ? history.Select(MapUpdateHistoryEntry).ToArray()
             : [];
 
     public StackUpdateHistoryEntryViewData? LatestUpdateHistoryEntry =>

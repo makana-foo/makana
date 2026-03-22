@@ -303,7 +303,7 @@ public static class CheckpointSerializer
 
         return propertyElement.EnumerateObject().ToDictionary(
             static property => property.Name,
-            static property => (IReadOnlyList<string>)[.. property.Value.EnumerateArray().Select(static item => item.GetString() ?? string.Empty)],
+            static property => (IReadOnlyList<string>)property.Value.EnumerateArray().Select(static item => item.GetString() ?? string.Empty).ToArray(),
             StringComparer.Ordinal);
     }
 

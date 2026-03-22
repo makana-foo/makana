@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 
 namespace Makana.WebConsole.Services;
@@ -37,6 +38,15 @@ public sealed class PulumiCliLoginService(HttpClient httpClient, ILogger<PulumiC
 
         var payload = await response.Content.ReadFromJsonAsync<TokenExchangeResponse>(cancellationToken);
         return payload?.AccessToken;
+    }
+
+    public static void ConfigureHttpClient(HttpClient client, IConfiguration configuration)
+    {
+        var baseUrl =
+            configuration["PULUMI_API_SERVICE"] ??
+            "http://api";
+
+        client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     }
 
     private sealed record TokenExchangeResponse(

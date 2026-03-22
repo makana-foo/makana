@@ -3,19 +3,22 @@
 @using Makana.WebConsole.Models
 @{
     ViewData["Title"] = $"Project {Model.Project}";
-    var header = new ConsolePageHeaderViewModel(
-        $"Project: {Model.Project}",
-        BackHref: $"/{Uri.EscapeDataString(Model.Owner)}/organization",
-        BackLabel: $"Organization {Model.Owner}");
 }
 
-<partial name="_ConsolePageHeader" model="header" />
+<header>
+    <h1>Project: @Model.Project</h1>
+    <p>
+        <a asp-page="/Organizations/Index" asp-route-owner="@Model.Owner">Organization @Model.Owner</a>
+    </p>
+</header>
 
 <section>
     <h2>Stacks</h2>
     @if (Model.Stacks.Count == 0)
     {
-        <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No stacks found for this project.")' />
+        <article class="card">
+            <p>No stacks found for this project.</p>
+        </article>
     }
     else
     {

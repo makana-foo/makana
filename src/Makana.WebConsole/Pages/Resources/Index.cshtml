@@ -4,17 +4,19 @@
 @{
     ViewData["Title"] = "Resources";
     ViewData["NavSection"] = "Resources";
-    var header = new ConsolePageHeaderViewModel(
-        "Resources",
-        $"Resource counts by stack for {Model.Owner}. Total: {Model.TotalResources}");
 }
 
 <section>
-    <partial name="_ConsolePageHeader" model="header" />
+    <header>
+        <h1>Resources</h1>
+        <p class="text-light">Resource counts by stack for <strong>@Model.Owner</strong>. Total: <strong>@Model.TotalResources</strong></p>
+    </header>
 
     @if (Model.Stacks.Count == 0)
     {
-        <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No stacks found for this owner.")' />
+        <article class="card">
+            <p>No stacks found for this owner.</p>
+        </article>
     }
     else
     {

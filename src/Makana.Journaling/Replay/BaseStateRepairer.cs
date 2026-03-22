@@ -54,7 +54,7 @@ public static class BaseStateRepairer
                         .Where(entry => entry.Value.Count > 0)
                         .ToDictionary(
                             static entry => entry.Key,
-                            entry => (IReadOnlyList<string>)[.. entry.Value.Where(referenceable.Contains)],
+                            entry => (IReadOnlyList<string>)entry.Value.Where(referenceable.Contains).ToArray(),
                             StringComparer.Ordinal)
                         .Where(static entry => entry.Value.Count > 0)
                         .ToDictionary(static entry => entry.Key, static entry => entry.Value, StringComparer.Ordinal),

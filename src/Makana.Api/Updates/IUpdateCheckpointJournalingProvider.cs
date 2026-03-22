@@ -22,28 +22,28 @@ internal interface IUpdateCheckpointJournalingProvider
     Task<UpdateMutationResult> ApplyCheckpointAsync(
         string updateId,
         PatchUpdateCheckpointRequest request,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken);
 
     Task<UpdateMutationResult> ApplyCheckpointVerbatimAsync(
         string updateId,
         PatchUpdateCheckpointVerbatimRequest request,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken);
 
     Task<UpdateMutationResult> ApplyCheckpointDeltaAsync(
         string updateId,
         PatchUpdateCheckpointDeltaRequest request,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken);
 
     Task RecordJournalEntriesAsync(
         string updateId,
         JsonElement entries,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken);
 
     Task<bool> RecoverInterruptedUpdateAsync(
         string updateId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken);
 
     Task<bool> FinalizeSucceededUpdateAsync(
         string updateId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken);
 }

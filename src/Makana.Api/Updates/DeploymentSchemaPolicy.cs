@@ -42,7 +42,7 @@ internal static class DeploymentSchemaPolicy
         ValidateSupportedVersion(schemaVersion);
         var features = DetectFeatures(deploymentJson);
         var exportedFeatures = DeploymentSchemaFeatures.FilterFeaturesForVersion(schemaVersion, features);
-        return exportedFeatures.Count == 0 ? null : [.. exportedFeatures];
+        return exportedFeatures.Count == 0 ? null : exportedFeatures.ToArray();
     }
 
     private static int InferRequiredVersion(string deploymentJson)

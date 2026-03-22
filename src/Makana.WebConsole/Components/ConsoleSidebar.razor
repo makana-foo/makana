@@ -1,46 +1,48 @@
-@using Makana.WebConsole.Components
 @using Makana.WebConsole.Models
 @using Microsoft.AspNetCore.Routing
 @inject LinkGenerator LinkGenerator
 @inject IHttpContextAccessor HttpContextAccessor
 
-<aside id="console-sidebar" data-sidebar aria-label="Primary navigation">
-    <header class="vstack gap-2">
+<aside data-sidebar aria-label="Primary navigation">
+    <header>
         <div class="vstack gap-1">
             <strong>Makana</strong>
             <small class="text-light">Pulumi Console MVP</small>
         </div>
-        <ot-dropdown>
-            <button type="button"
-                    class="outline small flex items-center justify-between gap-2 w-100"
-                    popovertarget="owner-menu"
-                    aria-label="Switch owner">
-                <span>@SelectedOwnerLabel()</span>
-                <DropdownChevron />
-            </button>
-            <menu popover id="owner-menu" class="owner-menu">
-                @foreach (var group in Context.OwnerGroups)
-                {
-                    <section class="owner-menu-group" aria-label="@group.Heading">
-                        <header class="owner-menu-heading">@group.Heading</header>
-                        @foreach (var owner in group.Options)
-                        {
-                            <a role="menuitem"
-                               href="@OwnerSwitchHref(owner.Value)"
-                               aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">@owner.Label</a>
-                        }
-                    </section>
-                    <hr />
-                }
-                <a role="menuitem"
-                   href="@OwnerPageHref("/Organizations/Create")">
-                    Create organization
-                </a>
-            </menu>
-        </ot-dropdown>
+        <div class="mt-4">
+            <ot-dropdown>
+                <button type="button"
+                        class="outline small w-100 justify-between"
+                        popovertarget="owner-menu"
+                        aria-label="Switch owner">
+                    @SelectedOwnerLabel()
+                </button>
+                <menu popover id="owner-menu" class="owner-menu">
+                    @foreach (var group in Context.OwnerGroups)
+                    {
+                        <section class="owner-menu-group" aria-label="@group.Heading">
+                            <header class="owner-menu-heading">@group.Heading</header>
+                            @foreach (var owner in group.Options)
+                            {
+                                <a role="menuitem"
+                                   href="@OwnerPageHref("/Stacks/Index", owner.Value)"
+                                   aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">@owner.Label</a>
+                            }
+                        </section>
+                    }
+                    <div class="owner-menu-footer">
+                        <button type="button"
+                                class="owner-menu-create"
+                                title="Organization creation is not wired yet">
+                            Create organization
+                        </button>
+                    </div>
+                </menu>
+            </ot-dropdown>
+        </div>
     </header>
 
-    <nav class="vstack gap-4" aria-label="Primary navigation">
+    <nav aria-label="Primary navigation">
         <ul>
             <li><a href="@OwnerPageHref("/Index")" aria-current="@AriaCurrent("Dashboard")">Dashboard</a></li>
             <li><a href="@OwnerPageHref("/Stacks/Index")" aria-current="@AriaCurrent("Stacks")">Stacks</a></li>
@@ -50,11 +52,21 @@
             <li><a href="@OwnerPageHref("/AiTasks/Index")" aria-current="@AriaCurrent("AiTasks")">AI Tasks</a></li>
         </ul>
 
-        <ul>
+        <ul class="mt-4">
             <li><a href="@OwnerPageHref("/Platform/Index")" aria-current="@AriaCurrent("Platform")">Platform</a></li>
             <li><a href="@OwnerPageHref("/Settings/Index")" aria-current="@AriaCurrent("Settings")">Settings</a></li>
         </ul>
     </nav>
+
+    <footer>
+        <div class="vstack">
+            <button type="button"
+                    class="outline small w-100"
+                    onclick="window.makanaTheme.toggle()"
+                    data-theme-toggle-label>Use dark mode</button>
+            <a class="button outline small w-100" href="@OwnerPageHref("/Stacks/Index")">Open owner workspace</a>
+        </div>
+    </footer>
 </aside>
 
 @code {
@@ -75,19 +87,6 @@
 
     private string OwnerPageHref(string page, string owner)
         => PageHref(page, new { owner });
-
-    private string OwnerSwitchHref(string owner)
-    {
-        var httpContext = HttpContextAccessor.HttpContext;
-        if (httpContext is null)
-        {
-            return "#";
-        }
-
-        var currentPage = httpContext.GetRouteValue("page")?.ToString();
-        var target = ConsoleOwnerSwitchTargetResolver.Resolve(owner, currentPage, httpContext.Request.RouteValues);
-        return PageHref(target.Page, target.RouteValues);
-    }
 
     private string SelectedOwnerLabel()
     {

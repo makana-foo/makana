@@ -11,21 +11,20 @@ namespace Makana.Api.Endpoints;
 internal sealed class EndpointHelpers
 {
     public async Task<IResult> CreateUpdateResponseAsync(
-        StackCatalogQueryRepository stackQueries,
-        UpdateCommandRepository updateCommands,
+        BackendStore store,
         string org,
         string project,
         string stack,
         string kind,
         UpdateProgramRequest request)
     {
-        var ids = stackQueries.GetStackIds(org, project, stack);
+        var ids = await store.GetStackIdsAsync(org, project, stack);
         if (ids is null)
         {
             return Results.NotFound();
         }
 
-        var updateId = updateCommands.CreateUpdate(
+        var updateId = await store.CreateUpdateAsync(
             ids.Value.StackId,
             kind,
             JsonSerializer.Serialize(request, EndpointHelpersJsonContext.Default.UpdateProgramRequest));
@@ -33,21 +32,20 @@ internal sealed class EndpointHelpers
     }
 
     public async Task<IResult> CreateUpdateResponseByNamespaceIdAsync(
-        StackCatalogQueryRepository stackQueries,
-        UpdateCommandRepository updateCommands,
+        BackendStore store,
         string namespaceId,
         string project,
         string stack,
         string kind,
         UpdateProgramRequest request)
     {
-        var ids = stackQueries.GetStackIdsByNamespaceId(namespaceId, project, stack);
+        var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceId, project, stack);
         if (ids is null)
         {
             return Results.NotFound();
         }
 
-        var updateId = updateCommands.CreateUpdate(
+        var updateId = await store.CreateUpdateAsync(
             ids.Value.StackId,
             kind,
             JsonSerializer.Serialize(request, EndpointHelpersJsonContext.Default.UpdateProgramRequest));
@@ -60,7 +58,7 @@ internal sealed class EndpointHelpers
     }
 
     public async Task<StackSummary[]> BuildStackSummariesAsync(
-        UpdateQueryRepository updateQueries,
+        BackendStore store,
         HttpRequest request,
         IEnumerable<(string StackId, string Name, string OrgName, string ProjectName, string? LastUpdate, string? TagsJson)> rows)
     {
@@ -70,8 +68,8 @@ internal sealed class EndpointHelpers
             var tags = row.TagsJson is null
                 ? null
                 : JsonSerializer.Deserialize(row.TagsJson, EndpointHelpersJsonContext.Default.DictionaryStringString);
-            var lastUpdate = updateQueries.GetHistory(row.StackId).FirstOrDefault().CreatedAt;
-            var resourceCount = await GetResourceCountAsync(updateQueries, row.StackId);
+            var lastUpdate = await store.GetLatestUpdateTimeAsync(row.StackId);
+            var resourceCount = await GetResourceCountAsync(store, row.StackId);
             var link = new StackLinks($"{GetBaseUrl(request)}/stacks/{row.OrgName}/{row.ProjectName}/{row.Name}");
             list.Add(new StackSummary(
                 $"{row.OrgName}/{row.ProjectName}/{row.Name}",
@@ -84,12 +82,12 @@ internal sealed class EndpointHelpers
                 tags));
         }
 
-        return [.. list];
+        return list.ToArray();
     }
 
-    public async Task<int?> GetResourceCountAsync(UpdateQueryRepository updateQueries, string stackId)
+    public async Task<int?> GetResourceCountAsync(BackendStore store, string stackId)
     {
-        var deployment = updateQueries.GetLatestDeployment(stackId);
+        var deployment = await store.GetLatestDeploymentAsync(stackId);
         if (deployment is null)
         {
             return null;
@@ -319,11 +317,11 @@ internal sealed class EndpointHelpers
             var other => char.ToUpperInvariant(other[0]) + other[1..]
         };
 
-    public async Task SaveUploadAsync(UploadRepository uploadRepository, HttpRequest request, string path)
+    public async Task SaveUploadAsync(BackendStore store, HttpRequest request, string path)
     {
         await using var stream = new MemoryStream();
         await request.Body.CopyToAsync(stream);
-        uploadRepository.SaveUpload(path, request.ContentType, stream.ToArray());
+        await store.SaveUploadAsync(path, request.ContentType, stream.ToArray());
     }
 
     public string? GetUpdateToken(HttpContext context)
@@ -358,7 +356,7 @@ internal sealed class EndpointHelpers
     {
         if (ciphertext.Length < 28)
         {
-            return [];
+            return Array.Empty<byte>();
         }
 
         var nonce = new byte[12];
@@ -392,7 +390,8 @@ internal sealed class EndpointHelpers
 
         try
         {
-            if (JsonNode.Parse(baseDeploymentJson) is not JsonObject node)
+            var node = JsonNode.Parse(baseDeploymentJson) as JsonObject;
+            if (node is null)
             {
                 return CreateEmptyDeploymentJson();
             }
