@@ -11,7 +11,9 @@ using Makana.StackUpdates.Services;
 namespace Makana.Api.Updates;
 
 internal sealed class UpdateViewMaterializer(
-    BackendStore store,
+    StackCatalogQueryRepository stackQueries,
+    UpdateQueryRepository updateQueries,
+    UpdateLogRepository updateLog,
     EndpointHelpers endpointHelpers,
     StackUpdateTranscriptMapper transcriptMapper,
     UpdateProjectionReducer projectionReducer,
@@ -24,7 +26,7 @@ internal sealed class UpdateViewMaterializer(
         string updateId,
         CancellationToken cancellationToken)
     {
-        var update = await store.GetUpdateDetailsAsync(stackId, updateId, cancellationToken);
+        var update = updateQueries.GetUpdateDetails(stackId, updateId);
         if (update is null)
         {
             return null;
@@ -39,8 +41,33 @@ internal sealed class UpdateViewMaterializer(
         string updateId,
         long? afterSequence,
         CancellationToken cancellationToken)
+        => await BuildAsync(
+            stackId,
+            updateId,
+            afterSequence,
+            allowSummaryFullRenderFallback: true,
+            cancellationToken);
+
+    public async Task<UpdateViewResponse?> BuildLiveAsync(
+        string stackId,
+        string updateId,
+        long? afterSequence,
+        CancellationToken cancellationToken)
+        => await BuildAsync(
+            stackId,
+            updateId,
+            afterSequence,
+            allowSummaryFullRenderFallback: false,
+            cancellationToken);
+
+    private async Task<UpdateViewResponse?> BuildAsync(
+        string stackId,
+        string updateId,
+        long? afterSequence,
+        bool allowSummaryFullRenderFallback,
+        CancellationToken cancellationToken)
     {
-        var update = await store.GetUpdateDetailsAsync(stackId, updateId, cancellationToken);
+        var update = updateQueries.GetUpdateDetails(stackId, updateId);
         if (update is null)
         {
             return null;
@@ -54,7 +81,7 @@ internal sealed class UpdateViewMaterializer(
             : await GetLatestProjectionStateAsync(updateId, cancellationToken);
         var recoveredState = await BuildRecoveredStateFromProjectionAsync(update.Value, currentState.BuildProjection(), cancellationToken);
         var stack = endpointHelpers.BuildStackPageMetadata(
-            await store.GetStackPageMetadataByIdAsync(stackId, cancellationToken));
+            stackQueries.GetStackPageMetadataById(stackId));
         var header = BuildHeader(recoveredState);
         var history = await BuildHistoryAsync(stackId, updateId, cancellationToken);
 
@@ -66,7 +93,8 @@ internal sealed class UpdateViewMaterializer(
             ? transcriptDeltaBuilder.Build(previousRows, recoveredState.TranscriptRows)
             : [];
         var deltaEntries = BuildChangeEntries(transcriptDeltas);
-        var summaryLines = StackUpdateTextFormatter.BuildSummaryLineProjections(recoveredState.TranscriptRows);
+        var includeFailureDiagnosticsInSummary = ShouldIncludeFailureDiagnosticsInSummary(recoveredState.Info.Status, recoveredState.TranscriptRows);
+        var summaryLines = StackUpdateTextFormatter.BuildSummaryLineProjections(recoveredState.TranscriptRows, includeFailureDiagnosticsInSummary);
         var diffLines = StackUpdateTextFormatter.BuildDiffLineProjections(recoveredState.TranscriptRows);
         var diagnosticLines = StackUpdateTextFormatter.BuildDiagnosticLineProjections(recoveredState.TranscriptRows, string.Empty, string.Empty, string.Empty);
         var summaryText = string.Join('\n', summaryLines.Select(static line => line.Text));
@@ -100,6 +128,11 @@ internal sealed class UpdateViewMaterializer(
         var renderedDiff = StackConsoleSemanticRenderer.Render(StackConsoleViewKind.Diff, diffLines, diffText);
         var renderedDiagnostic = StackConsoleSemanticRenderer.Render(StackConsoleViewKind.Diagnostic, diagnosticLines, diagnosticText);
         var includeFullChanges = !afterSequence.HasValue || afterSequence.Value == 0 || !recoveredState.IsInProgress;
+        var requiresSummaryFullRender = allowSummaryFullRenderFallback &&
+                                        afterSequence.HasValue &&
+                                        summaryLineDeltas.Any(static delta =>
+            string.Equals(delta.Key, "summary:header", StringComparison.Ordinal) &&
+            !string.Equals(delta.Action, "delete", StringComparison.Ordinal));
         var changes = new UpdateViewChanges(
             HasEvents: recoveredState.TranscriptRows.Length > 0,
             MessageCount: recoveredState.TranscriptRows.OfType<StackConfigurationTranscriptRow>().Count() +
@@ -109,7 +142,7 @@ internal sealed class UpdateViewMaterializer(
             DiagnosticText: includeFullChanges ? diagnosticText : string.Empty,
             Entries: includeFullChanges ? changeEntries : [],
             DeltaEntries: deltaEntries,
-            SummaryLines: includeFullChanges ? BuildConsoleLines(renderedSummary.Lines) : [],
+            SummaryLines: includeFullChanges || requiresSummaryFullRender ? BuildConsoleLines(renderedSummary.Lines) : [],
             DiffLines: includeFullChanges ? BuildConsoleLines(renderedDiff.Lines) : [],
             DiagnosticLines: includeFullChanges ? BuildConsoleLines(renderedDiagnostic.Lines) : [],
             SummaryLineDeltas: summaryLineDeltas,
@@ -136,14 +169,14 @@ internal sealed class UpdateViewMaterializer(
         string selectedUpdateId,
         CancellationToken cancellationToken)
     {
-        var updates = await store.GetHistoryAsync(stackId, includePreviews: true);
+        var updates = updateQueries.GetHistory(stackId, includePreviews: true);
         if (updates.Count == 0)
         {
             return [];
         }
 
-        var previewFlags = await store.GetUpdatePreviewFlagsAsync(updates.Select(static update => update.Id).ToArray(), cancellationToken);
-        return updates.Select(update =>
+        var previewFlags = updateQueries.GetUpdatePreviewFlags([.. updates.Select(static update => update.Id)]);
+        return [.. updates.Select(update =>
             {
                 var isPreview = endpointHelpers.IsPreviewOperation(
                     update.Kind,
@@ -164,8 +197,7 @@ internal sealed class UpdateViewMaterializer(
                     RouteRunType: endpointHelpers.GetUpdateRouteRunType(update.Kind, isPreview),
                     RouteReference: endpointHelpers.GetUpdateRouteReference(update.Id, update.Version, update.Kind, isPreview),
                     IsSelected: string.Equals(update.Id, selectedUpdateId, StringComparison.Ordinal));
-            })
-            .ToArray();
+            })];
     }
 
     private UpdateViewHeader BuildHeader(RecoveredUpdateState recoveredState)
@@ -193,11 +225,11 @@ internal sealed class UpdateViewMaterializer(
         UpdateProjection projection,
         CancellationToken cancellationToken)
     {
-        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(update.Id, cancellationToken);
+        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(update.Id);
         var fallbackDeploymentJson = latestCheckpoint?.DeploymentJson;
         if (string.IsNullOrWhiteSpace(fallbackDeploymentJson))
         {
-            var latestDeployment = await store.GetLatestDeploymentAsync(update.StackId, cancellationToken);
+            var latestDeployment = updateQueries.GetLatestDeployment(update.StackId);
             fallbackDeploymentJson = latestDeployment?.DeploymentJson;
         }
 
@@ -268,45 +300,58 @@ internal sealed class UpdateViewMaterializer(
             isInProgress,
             continuationToken,
             latestSequence,
-            configuration.OrderBy(static entry => entry.Key, StringComparer.Ordinal).ToArray(),
+            [.. configuration.OrderBy(static entry => entry.Key, StringComparer.Ordinal)],
             outputs,
-            resources.Select(static resource => resource.ToContract()).ToArray(),
+            [.. resources.Select(static resource => resource.ToContract())],
             summary,
-            transcriptRows.ToArray());
+            [.. transcriptRows]);
     }
 
     private static UpdateViewConsoleLine[] BuildConsoleLines(IReadOnlyList<StackConsoleRenderedLine> lines)
-        => lines.Select(static line => new UpdateViewConsoleLine(
+        => [.. lines.Select(static line => new UpdateViewConsoleLine(
                 line.Key,
                 line.Text,
                 line.CssClass,
-                line.Segments.Select(static segment => new UpdateViewConsoleSegment(segment.Text, segment.CssClass)).ToArray()))
-            .ToArray();
+                [.. line.Segments.Select(static segment => new UpdateViewConsoleSegment(segment.Text, segment.CssClass))],
+                line.Cells?.Select(static cell => new UpdateViewConsoleCell(
+                    cell.CssClass,
+                    [.. cell.Segments.Select(static segment => new UpdateViewConsoleSegment(segment.Text, segment.CssClass))]))
+                    .ToArray()))];
+
+    private static bool ShouldIncludeFailureDiagnosticsInSummary(
+        string? status,
+        IReadOnlyList<StackTranscriptRow> rows)
+        => string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase) &&
+           rows.OfType<StackDiagnosticTranscriptRow>().Any(static row => row.IsError);
 
     private static UpdateViewConsoleLineDelta[] BuildConsoleLineDeltas(IReadOnlyList<StackConsoleRenderedDelta> deltas)
-        => deltas.Select(static delta => new UpdateViewConsoleLineDelta(
+        => [.. deltas.Select(static delta => new UpdateViewConsoleLineDelta(
                 delta.Key,
                 delta.Action,
+                delta.AnchorKey,
                 delta.Line is null
                     ? null
                     : new UpdateViewConsoleLine(
                         delta.Line.Key,
                         delta.Line.Text,
                         delta.Line.CssClass,
-                        delta.Line.Segments.Select(static segment => new UpdateViewConsoleSegment(segment.Text, segment.CssClass)).ToArray())))
-            .ToArray();
+                        [.. delta.Line.Segments.Select(static segment => new UpdateViewConsoleSegment(segment.Text, segment.CssClass))],
+                        delta.Line.Cells?.Select(static cell => new UpdateViewConsoleCell(
+                            cell.CssClass,
+                            [.. cell.Segments.Select(static segment => new UpdateViewConsoleSegment(segment.Text, segment.CssClass))]))
+                            .ToArray())))];
 
     private async Task<UpdateProjectionReducer.ProjectionState> GetLatestProjectionStateAsync(
         string updateId,
         CancellationToken cancellationToken)
     {
-        var latestSequence = await store.GetLatestEventSequenceAsync(updateId, cancellationToken);
+        var latestSequence = updateLog.GetLatestEventSequence(updateId);
         if (latestSequence is > 0 && projectionStateCache.TryGet(updateId, latestSequence.Value, out var cached))
         {
             return cached!;
         }
 
-        var events = await store.GetEventsAsync(updateId, cancellationToken);
+        var events = updateLog.GetEvents(updateId);
         var parsedEvents = DeserializeStoredEvents(events);
         var state = projectionReducer.ReplayState(parsedEvents);
         if (state.Sequence >= 0)
@@ -332,7 +377,7 @@ internal sealed class UpdateViewMaterializer(
             return cached!;
         }
 
-        var events = await store.GetEventsAsync(updateId, cancellationToken);
+        var events = updateLog.GetEvents(updateId);
         var parsedEvents = DeserializeStoredEvents(events);
         var state = projectionReducer.ReplayStateUntil(parsedEvents, sequence);
         if (state.Sequence >= 0)
@@ -349,7 +394,7 @@ internal sealed class UpdateViewMaterializer(
         UpdateProjectionReducer.ProjectionState previousState,
         CancellationToken cancellationToken)
     {
-        var latestSequence = await store.GetLatestEventSequenceAsync(updateId, cancellationToken);
+        var latestSequence = updateLog.GetLatestEventSequence(updateId);
         if (latestSequence is null || latestSequence <= afterSequence)
         {
             return previousState.Clone();
@@ -382,7 +427,7 @@ internal sealed class UpdateViewMaterializer(
 
         while (true)
         {
-            var page = await store.GetEventPageAsync(updateId, cursor, pageSize, cancellationToken);
+            var page = updateLog.GetEventPage(updateId, cursor, pageSize);
             if (page.EventsJson.Count == 0)
             {
                 break;
@@ -425,12 +470,11 @@ internal sealed class UpdateViewMaterializer(
             return [];
         }
 
-        return config.Select(static entry => new UpdateViewConfigEntry(
+        return [.. config.Select(static entry => new UpdateViewConfigEntry(
                 entry.Key,
                 entry.Value.Secret ? "[secret]" : entry.Value.String,
                 entry.Value.Secret,
-                entry.Value.Object))
-            .ToList();
+                entry.Value.Object))];
     }
 
     private static bool TryReadPreludeConfig(EngineEvent envelope, out List<UpdateViewConfigEntry> entries)
@@ -598,19 +642,20 @@ internal sealed class UpdateViewMaterializer(
             }
         }
 
-        return names.Select(name =>
+        return [.. names.Select(name =>
             {
                 string? oldValue = null;
                 string? newValue = null;
                 oldOutputs?.TryGetValue(name, out oldValue);
                 newOutputs?.TryGetValue(name, out newValue);
+                oldValue = PulumiDisplayValueFormatter.NormalizeUnknownDisplayValue(oldValue);
+                newValue = PulumiDisplayValueFormatter.NormalizeUnknownDisplayValue(newValue);
                 return new UpdateViewOutputEntry(
                     name,
                     oldValue,
                     newValue,
                     !string.Equals(oldValue, newValue, StringComparison.Ordinal));
-            })
-            .ToArray();
+            })];
     }
 
     private static Dictionary<string, string?>? ReadOutputs(StepEventMetadata metadata, string stateName)
@@ -711,7 +756,7 @@ internal sealed class UpdateViewMaterializer(
         => operation.Contains("fail", StringComparison.OrdinalIgnoreCase);
 
     private static string JsonValueToInlineString(JsonElement value)
-        => value.ValueKind switch
+        => PulumiDisplayValueFormatter.NormalizeUnknownDisplayValue(value.ValueKind switch
         {
             JsonValueKind.String => value.GetString() ?? string.Empty,
             JsonValueKind.True => "true",
@@ -719,7 +764,7 @@ internal sealed class UpdateViewMaterializer(
             JsonValueKind.Number => value.ToString(),
             JsonValueKind.Null => "null",
             _ => value.GetRawText()
-        };
+        }) ?? string.Empty;
 
     private static void ApplyCheckpointFallback(
         string? deploymentJson,
@@ -842,10 +887,10 @@ internal sealed class UpdateViewMaterializer(
     }
 
     private static UpdateViewChangeEntry[] BuildChangeEntries(IEnumerable<StackTranscriptRow> rows)
-        => rows.Select(MapChangeEntry).ToArray();
+        => [.. rows.Select(MapChangeEntry)];
 
     private static UpdateViewChangeEntry[] BuildChangeEntries(IEnumerable<StackTranscriptRowDelta> deltas)
-        => deltas.Select(MapChangeEntry).ToArray();
+        => [.. deltas.Select(MapChangeEntry)];
 
     private static UpdateViewChangeEntry MapChangeEntry(StackTranscriptRow row)
     {
@@ -860,9 +905,7 @@ internal sealed class UpdateViewMaterializer(
                 configuration.Sequence,
                 action,
                 configuration.IsError,
-                ConfigEntries: configuration.Entries
-                    .Select(static entry => new UpdateViewChangeConfigEntry(entry.Key, entry.Value))
-                    .ToArray(),
+                ConfigEntries: [.. configuration.Entries.Select(static entry => new UpdateViewChangeConfigEntry(entry.Key, entry.Value))],
                 RawPayloadJson: configuration.RawPayloadJson),
             StackResourceTranscriptRow resource => new UpdateViewChangeEntry(
                 resource.Key,

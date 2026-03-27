@@ -1,0 +1,38 @@
+@page
+@model Makana.WebConsole.Pages.ReauthenticateModel
+@{
+    ViewData["Title"] = "Re-authenticate";
+    ViewData["HideChrome"] = true;
+    var returnUrl = Request.Query["returnUrl"].ToString();
+    var owner = Model.ResolvedOwner;
+}
+
+<section class="auth-shell" aria-labelledby="reauth-heading">
+    <article class="card">
+        <header>
+            <h1 id="reauth-heading">We need you to re-authenticate.</h1>
+            <p>
+                Your upstream identity session expired before the Makana Web Console cookie did.
+                Please authenticate again to continue.
+            </p>
+        </header>
+
+        <form method="post" asp-page-handler="Authenticate" hx-boost="false" class="auth-provider-form">
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            @if (!string.IsNullOrWhiteSpace(owner))
+            {
+                <input type="hidden" name="owner" value="@owner" />
+            }
+            <div class="auth-provider-list" role="list" aria-label="Available reauthentication providers">
+                @foreach (var provider in Model.Providers)
+                {
+                    <button class="auth-provider-button" type="submit" name="provider" value="@provider.Id">
+                        <span class="auth-provider-button__badge" aria-hidden="true">@provider.BadgeText</span>
+                        <span class="auth-provider-button__label">@provider.ButtonLabel</span>
+                        <span class="auth-provider-button__meta" aria-hidden="true">@provider.DisplayName</span>
+                    </button>
+                }
+            </div>
+        </form>
+    </article>
+</section>

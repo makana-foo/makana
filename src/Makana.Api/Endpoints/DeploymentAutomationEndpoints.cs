@@ -1,37 +1,53 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Makana.Api.Endpoints;
 
 internal static class DeploymentAutomationEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapDeploymentAutomationEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/deployments", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/deployments/metadata", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/metadata", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}/history", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/version/{deploymentVersion}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/{deploymentID}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/deployments/pause", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/deployments/resume", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/drift/schedules", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/drift/schedules/{scheduleID}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/pause", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/resume", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}/pause", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/schedules/{scheduleID}/resume", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/settings", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/ttl/schedules", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/ttl/schedules/{scheduleID}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/deployments/{deploymentID}/cancel", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        var orgDeployments = app.MapGroup("/api/orgs/{org}")
+            .RequireAuthorization("OrgRouteAccess");
+        orgDeployments.MapMethods("/deployments", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        orgDeployments.MapMethods("/deployments/metadata", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        orgDeployments.MapMethods("/deployments/pause", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        orgDeployments.MapMethods("/deployments/resume", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+
+        var stackDeployments = app.MapGroup(StackRouteConventions.ApiStackRoute)
+            .RequireAuthorization("OrgRouteAccess");
+        stackDeployments.MapMethods("/deployments/schedules/{scheduleID}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/metadata", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/schedules", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/schedules/{scheduleID}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/schedules/{scheduleID}/history", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/version/{deploymentVersion}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/{deploymentID}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackDeployments.MapMethods("/deployments/drift/schedules", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/drift/schedules/{scheduleID}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/pause", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/resume", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/schedules", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/schedules/{scheduleID}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/schedules/{scheduleID}/pause", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/schedules/{scheduleID}/resume", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/settings", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/ttl/schedules", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/ttl/schedules/{scheduleID}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackDeployments.MapMethods("/deployments/{deploymentID}/cancel", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
 
         return app;
     }

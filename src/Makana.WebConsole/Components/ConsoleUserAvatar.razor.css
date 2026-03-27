@@ -1,0 +1,18 @@
+.console-user-avatar-shell {
+    align-items: center;
+    background: var(--makana-avatar-surface);
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--makana-avatar-ring);
+    display: inline-flex;
+    flex: 0 0 auto;
+    height: 2.25rem;
+    justify-content: center;
+    overflow: hidden;
+    width: 2.25rem;
+}
+
+.console-user-avatar {
+    display: block;
+    height: calc(100% - 0.3rem);
+    width: calc(100% - 0.3rem);
+}

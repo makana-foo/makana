@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Makana.Api.Contracts;
 using Makana.Api.Storage;
@@ -7,19 +6,24 @@ namespace Makana.Api.Endpoints;
 
 internal static class DeploymentEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    public static IEndpointRouteBuilder MapDeploymentEndpoints(this IEndpointRouteBuilder app, BackendStore store, byte[] secretKey)
+    public static IEndpointRouteBuilder MapDeploymentEndpoints(
+        this IEndpointRouteBuilder app,
+        StackCatalogQueryRepository stackQueries,
+        DeploymentRunRepository deploymentRuns,
+        byte[] secretKey)
     {
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/deployments/settings", async (string org, string project, string stack) =>
+        var deploymentGroup = app.MapGroup(StackRouteConventions.ApiStackRoute + "/deployments")
+            .RequireAuthorization("OrgRouteAccess");
+
+        deploymentGroup.MapGet("/settings", async (string org, string project, string stack) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var settings = await store.GetDeploymentSettingsAsync(ids.Value.StackId);
+            var settings = deploymentRuns.GetDeploymentSettings(ids.Value.StackId);
             if (string.IsNullOrWhiteSpace(settings))
             {
                 return Results.Ok(new DeploymentSettingsRequest(null, null, null, null, null, null));
@@ -28,65 +32,65 @@ internal static class DeploymentEndpoints
             return Results.Ok(JsonDocument.Parse(settings).RootElement);
         });
 
-        app.MapPut("/api/stacks/{org}/{project}/{stack}/deployments/settings", async (string org, string project, string stack, JsonElement settings) =>
+        deploymentGroup.MapPut("/settings", async (string org, string project, string stack, JsonElement settings) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            await store.SaveDeploymentSettingsAsync(ids.Value.StackId, settings.GetRawText());
+            deploymentRuns.SaveDeploymentSettings(ids.Value.StackId, settings.GetRawText());
             return Results.Ok();
-        });
+        }).RequireAuthorization("ApiToken");
 
-        app.MapDelete("/api/stacks/{org}/{project}/{stack}/deployments/settings", async (string org, string project, string stack) =>
+        deploymentGroup.MapDelete("/settings", async (string org, string project, string stack) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            await store.DeleteDeploymentSettingsAsync(ids.Value.StackId);
+            deploymentRuns.DeleteDeploymentSettings(ids.Value.StackId);
             return Results.Ok();
-        });
+        }).RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/deployments/settings/encrypt", (JsonElement request, EndpointHelpers endpointHelpers) =>
+        deploymentGroup.MapPost("/settings/encrypt", (JsonElement request, EndpointHelpers endpointHelpers) =>
         {
             var plaintext = endpointHelpers.ExtractSecretPlaintext(request);
             var cipher = endpointHelpers.Encrypt(secretKey, System.Text.Encoding.UTF8.GetBytes(plaintext));
             return Results.Ok(new SecretValueResponse(Convert.ToBase64String(cipher)));
-        });
+        }).RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/deployments", async (HttpContext context, string org, string project, string stack, CreateDeploymentRequest request, EndpointHelpers endpointHelpers) =>
+        deploymentGroup.MapPost("/", async (HttpContext context, string org, string project, string stack, CreateDeploymentRequest request, EndpointHelpers endpointHelpers) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var deploymentId = await store.CreateDeploymentRunAsync(
+            var deploymentId = deploymentRuns.CreateDeploymentRun(
                 ids.Value.StackId,
                 JsonSerializer.Serialize(request, DeploymentEndpointsJsonContext.Default.CreateDeploymentRequest));
             var baseUrl = endpointHelpers.GetBaseUrl(context.Request);
             return Results.Ok(new CreateDeploymentResponse(deploymentId, $"{baseUrl}/console/deployments/{deploymentId}"));
         }).RequireAuthorization("ApiToken");
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/deployments/{deploymentId}/logs", async (string deploymentId) =>
+        deploymentGroup.MapGet("/{deploymentId}/logs", async (string deploymentId) =>
         {
-            if (!await store.DeploymentRunExistsAsync(deploymentId))
+            if (!deploymentRuns.DeploymentRunExists(deploymentId))
             {
                 return Results.NotFound();
             }
 
-            return Results.Ok(new DeploymentLogs(Array.Empty<DeploymentLogLine>(), null));
+            return Results.Ok(new DeploymentLogs([], null));
         });
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/deployments/{deploymentId}/updates", async (string deploymentId) =>
+        deploymentGroup.MapGet("/{deploymentId}/updates", async (string deploymentId) =>
         {
-            if (!await store.DeploymentRunExistsAsync(deploymentId))
+            if (!deploymentRuns.DeploymentRunExists(deploymentId))
             {
                 return Results.NotFound();
             }

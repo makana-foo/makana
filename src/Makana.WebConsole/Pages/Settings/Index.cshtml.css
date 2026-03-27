@@ -1,0 +1,12 @@
+.settings-page {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.settings-page [data-theme-feedback][data-state="error"] {
+    color: var(--danger);
+}
+
+.settings-page [data-theme-feedback][data-state="saving"] {
+    color: var(--muted-foreground);
+}

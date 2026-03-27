@@ -2,20 +2,19 @@
 @model Makana.WebConsole.Pages.Organizations.IndexModel
 @{
     ViewData["Title"] = $"Organization {Model.Owner}";
+    var header = new ConsolePageHeaderViewModel(
+        $"Organization: {Model.Owner}",
+        BackHref: $"/{Uri.EscapeDataString(Model.Owner)}",
+        BackLabel: "Back to dashboard");
 }
 
-<header>
-    <h1>Organization: @Model.Owner</h1>
-    <p class="text-light"><a asp-page="/Index" asp-route-owner="@Model.Owner">Back to dashboard</a></p>
-</header>
+<partial name="_ConsolePageHeader" model="header" />
 
 <section>
     <h2>Projects</h2>
     @if (Model.Projects.Count == 0)
     {
-        <article class="card">
-            <p>No projects found for this organization.</p>
-        </article>
+        <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No projects found for this organization.")' />
     }
     else
     {

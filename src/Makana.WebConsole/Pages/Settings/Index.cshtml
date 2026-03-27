@@ -1,20 +1,36 @@
 @page "/{owner}/settings"
 @model Makana.WebConsole.Pages.Settings.IndexModel
+@using Makana.WebConsole.Models
 @{
-    ViewData["Title"] = "Settings";
+    ViewData["Title"] = Model.IsPersonalSettings ? "Account settings" : "Organization settings";
     ViewData["NavSection"] = "Settings";
+    var pageHeader = new ConsolePageHeaderViewModel(
+        Model.IsPersonalSettings ? "Account settings" : "Organization settings",
+        Model.IsPersonalSettings
+            ? "Manage your personal account details and console theme."
+            : $"Review organization settings for {Model.Owner}.");
+    var identityItems = Model.Context.User is null
+        ? []
+        : new[]
+        {
+            new ConsoleDetailItem("User", Model.Context.User.Name),
+            new ConsoleDetailItem("Login", Model.Context.User.GitHubLogin),
+            new ConsoleDetailItem("Email", Model.Context.User.Email ?? "not provided"),
+            new ConsoleDetailItem(Model.IsPersonalSettings ? "Personal owner" : "Selected organization", Model.Owner ?? "none")
+        };
 }
 
-<section>
-    <header>
-        <h1>Settings</h1>
-        <p class="text-light">Current account and owner context.</p>
-    </header>
+<section class="settings-page">
+    <partial name="_ConsolePageHeader" model="pageHeader" />
 
     <article class="card">
         <header>
             <h3>Identity</h3>
-            <p class="text-light">Resolved from the Makana API and current OIDC session.</p>
+            <p class="text-light">
+                @(Model.IsPersonalSettings
+                    ? "Resolved from the Makana API and current OIDC session."
+                    : "Resolved from the Makana API, the current OIDC session, and the selected owner context.")
+            </p>
         </header>
         @if (Model.Context.User is null)
         {
@@ -24,32 +40,45 @@
         }
         else
         {
-            <div class="row">
-                <div class="col-6">
-                    <label data-field>
-                        User
-                        <input type="text" value="@Model.Context.User.Name" readonly />
-                    </label>
-                </div>
-                <div class="col-6">
-                    <label data-field>
-                        Login
-                        <input type="text" value="@Model.Context.User.GitHubLogin" readonly />
-                    </label>
-                </div>
-                <div class="col-6">
-                    <label data-field>
-                        Email
-                        <input type="text" value="@(Model.Context.User.Email ?? "not provided")" readonly />
-                    </label>
-                </div>
-                <div class="col-6">
-                    <label data-field>
-                        Selected owner
-                        <input type="text" value="@(Model.Owner ?? "none")" readonly />
-                    </label>
-                </div>
-            </div>
+            <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
+                       render-mode="Static"
+                       param-Items="identityItems" />
         }
     </article>
+
+    @if (Model.IsPersonalSettings)
+    {
+        <article class="card">
+            <header>
+                <h3>Theme</h3>
+                <p class="text-light">Choose the theme family for your personal Makana Web Console experience.</p>
+            </header>
+            @if (Model.AvailableThemes.Count == 0)
+            {
+                <div role="alert" data-variant="error">
+                    <strong>Unavailable.</strong> Unable to load the available themes for your account.
+                </div>
+            }
+            else
+            {
+                <label data-field>
+                    Theme
+                    <select data-theme-select>
+                        @foreach (var theme in Model.AvailableThemes)
+                        {
+                            <option value="@theme.Id" selected="@(string.Equals(Model.SelectedTheme, theme.Id, StringComparison.Ordinal) ? "selected" : null)">
+                                @theme.Label
+                            </option>
+                        }
+                    </select>
+                </label>
+                <p class="text-light" data-theme-feedback role="status">
+                    Theme changes apply immediately and are saved to your account.
+                </p>
+                <p class="text-light">
+                    Use the light/dark mode button in the top bar to switch the current color mode.
+                </p>
+            }
+        </article>
+    }
 </section>

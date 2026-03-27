@@ -1,71 +1,43 @@
 @using Makana.WebConsole.Models
 @model Makana.WebConsole.Models.StackLivePanelViewModel
+@{
+    var overviewItems = new[]
+    {
+        new ConsoleDetailItem("Kind", Model.DisplayKindLabel),
+        new ConsoleDetailItem("Version", Model.DisplayVersion?.ToString() ?? "n/a"),
+        new ConsoleDetailItem("Message", Model.DisplayMessage ?? "n/a")
+    };
+    var summaryItems = new[]
+    {
+        new ConsoleDetailItem("Preview", Model.IsPreview ? "Yes" : "No"),
+        new ConsoleDetailItem("Resource count", Model.DisplayResourceCount?.ToString() ?? "n/a"),
+        new ConsoleDetailItem("Result", Model.StatusText)
+    };
+    var timingItems = new[]
+    {
+        new ConsoleDetailItem("Started", Model.DisplayStartedExactText),
+        new ConsoleDetailItem("Completed", Model.DisplayCompletedExactText),
+        new ConsoleDetailItem("Maybe corrupt", (Model.UpdateView?.Summary?.MaybeCorrupt == true) ? "Yes" : "No")
+    };
+}
 
 @if (!string.IsNullOrWhiteSpace(Model.DisplayKind) || Model.DisplayVersion is not null || !string.IsNullOrWhiteSpace(Model.DisplayMessage))
 {
-    <div class="row mt-4">
-        <div class="col-4">
-            <label data-field>
-                Kind
-                <input type="text" value="@Model.DisplayKindLabel" readonly />
-            </label>
-        </div>
-        <div class="col-4">
-            <label data-field>
-                Version
-                <input type="text" value="@(Model.DisplayVersion?.ToString() ?? "n/a")" readonly />
-            </label>
-        </div>
-        <div class="col-4">
-            <label data-field>
-                Message
-                <input type="text" value="@(Model.DisplayMessage ?? "n/a")" readonly />
-            </label>
-        </div>
+    <div class="stack-live-metadata">
+        <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
+                   render-mode="Static"
+                   param-Items="overviewItems" />
     </div>
 }
 
 @if (Model.DisplayStartTime is not null || Model.DisplayEndTime is not null || Model.DisplayResourceCount is not null || Model.UpdateView?.Summary is not null)
 {
-    <div class="row mt-4">
-        <div class="col-4">
-            <label data-field>
-                Preview
-                <input type="text" value="@(Model.IsPreview ? "Yes" : "No")" readonly />
-            </label>
-        </div>
-        <div class="col-4">
-            <label data-field>
-                Resource count
-                <input type="text" value="@(Model.DisplayResourceCount?.ToString() ?? "n/a")" readonly />
-            </label>
-        </div>
-        <div class="col-4">
-            <label data-field>
-                Result
-                <input type="text" value="@Model.StatusText" readonly />
-            </label>
-        </div>
-    </div>
-
-    <div class="row mt-4">
-        <div class="col-4">
-            <label data-field>
-                Started
-                <input type="text" value="@Model.DisplayStartedExactText" readonly />
-            </label>
-        </div>
-        <div class="col-4">
-            <label data-field>
-                Completed
-                <input type="text" value="@Model.DisplayCompletedExactText" readonly />
-            </label>
-        </div>
-        <div class="col-4">
-            <label data-field>
-                Maybe corrupt
-                <input type="text" value="@((Model.UpdateView?.Summary?.MaybeCorrupt == true) ? "Yes" : "No")" readonly />
-            </label>
-        </div>
+    <div class="stack-live-metadata">
+        <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
+                   render-mode="Static"
+                   param-Items="summaryItems" />
+        <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
+                   render-mode="Static"
+                   param-Items="timingItems" />
     </div>
 }

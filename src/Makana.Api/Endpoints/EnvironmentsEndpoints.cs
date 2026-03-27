@@ -1,22 +1,27 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Makana.Api.Endpoints;
 
 internal static class EnvironmentsEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapEnvironmentsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}/open/{openSessionID}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}/settings", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}/clone", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/esc/environments/{organization}/{project}/{environment}/open", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        var environments = app.MapGroup("/api/esc/environments/{org}")
+            .RequireAuthorization("OrgRouteAccess");
+
+        environments.MapMethods("/{project}/{environment}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        environments.MapMethods("", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        environments.MapMethods("/{project}/{environment}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        environments.MapMethods("/{project}/{environment}/open/{openSessionID}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        environments.MapMethods("/{project}/{environment}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        environments.MapMethods("/{project}/{environment}/settings", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        environments.MapMethods("", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        environments.MapMethods("/{project}/{environment}/clone", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        environments.MapMethods("/{project}/{environment}/open", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
 
         return app;
     }

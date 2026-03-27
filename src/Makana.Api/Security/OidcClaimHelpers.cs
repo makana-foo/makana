@@ -5,66 +5,57 @@ namespace Makana.Api.Security;
 
 internal static class OidcClaimHelpers
 {
-    public static string? ResolveCanonicalUserId(ClaimsPrincipal principal, string providerKey)
+    public static string? ResolveCanonicalUserId(ClaimsPrincipal principal)
     {
-        var subject = principal.FindFirst("sub")?.Value
-            ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrWhiteSpace(subject))
-        {
-            return null;
-        }
-
-        return $"{providerKey}:{subject}";
+        return principal.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? principal.FindFirstValue("sub");
     }
 
     public static string? ResolveLogin(ClaimsPrincipal principal)
     {
-        var asserted = GetClaim(
+        return GetClaim(
             principal,
-            "preferred_username",
+            PulumiAuthenticationDefaults.LoginClaim,
             "username",
             "login",
             "nickname",
             ClaimTypes.Upn,
-            ClaimTypes.Name);
-        if (string.IsNullOrWhiteSpace(asserted))
-        {
-            return null;
-        }
+            ClaimTypes.Name)
+            ?? (ResolveEmailVerified(principal) ? ResolveEmail(principal) : null);
+    }
 
-        return SanitizeLogin(asserted);
+    public static string? ResolveDisplayName(ClaimsPrincipal principal)
+    {
+        return GetClaim(
+            principal,
+            ClaimTypes.Name,
+            "name",
+            PulumiAuthenticationDefaults.LoginClaim,
+            "nickname");
+    }
+
+    public static string? ResolveEmail(ClaimsPrincipal principal)
+        => principal.FindFirstValue(ClaimTypes.Email)
+            ?? principal.FindFirstValue("email");
+
+    public static bool ResolveEmailVerified(ClaimsPrincipal principal)
+    {
+        var rawValue = principal.FindFirstValue("email_verified");
+        return string.Equals(rawValue, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(rawValue, "1", StringComparison.Ordinal);
     }
 
     private static string? GetClaim(ClaimsPrincipal principal, params string[] claimTypes)
     {
         foreach (var claimType in claimTypes)
         {
-            var claim = principal.FindFirst(claimType)?.Value;
-            if (!string.IsNullOrWhiteSpace(claim))
+            var value = principal.FindFirstValue(claimType);
+            if (!string.IsNullOrWhiteSpace(value))
             {
-                return claim;
+                return value;
             }
         }
 
         return null;
-    }
-
-    private static string SanitizeLogin(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var ch in value.Trim().ToLowerInvariant())
-        {
-            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')
-            {
-                builder.Append(ch);
-            }
-            else
-            {
-                builder.Append('-');
-            }
-        }
-
-        var result = builder.ToString().Trim('-');
-        return string.IsNullOrWhiteSpace(result) ? "user" : result;
     }
 }

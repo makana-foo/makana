@@ -1,0 +1,18 @@
+<article class="card console-summary-card">
+    <header class="console-summary-card__header">
+        <h3>@Title</h3>
+        <span class="badge console-summary-card__value">@Value</span>
+    </header>
+    <p class="text-light">@Description</p>
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public required string Title { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string Value { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string Description { get; set; }
+}

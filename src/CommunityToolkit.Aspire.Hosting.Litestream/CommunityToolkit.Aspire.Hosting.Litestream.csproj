@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>CommunityToolkit.Aspire.Hosting.Litestream</PackageId>
+    <Version>13.2.0-makana.1</Version>
+    <Authors>Microsoft.Toolkit;dotnetfoundation;Community Toolkit</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/CommunityToolkit/Aspire</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/CommunityToolkit/Aspire</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <AdditionalPackageTags>hosting litestream sqlite replication backup</AdditionalPackageTags>
+    <Description>An Aspire hosting integration for configuring Litestream sidecars for SQLite replication.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" Version="13.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CommunityToolkit.Aspire.Hosting.Litestream.Tests"></InternalsVisibleTo>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

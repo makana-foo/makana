@@ -5,12 +5,8 @@
 }
 
 <section>
-    <header>
-        <h1>AI Tasks</h1>
-        <p class="text-light">This section is a placeholder for AI-assisted operations and task runs.</p>
-    </header>
+    <partial name="_ConsolePageHeader"
+             model='new ConsolePageHeaderViewModel("AI Tasks", "This section is a placeholder for AI-assisted operations and task runs.")' />
 
-    <article class="card">
-        <p>No AI task features are implemented yet.</p>
-    </article>
+    <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No AI task features are implemented yet.")' />
 </section>

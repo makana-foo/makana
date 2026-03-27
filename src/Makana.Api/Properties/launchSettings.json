@@ -1,12 +1,41 @@
 {
   "profiles": {
-    "dotnet-api": {
+    "https": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:55507;http://localhost:55508"
+      "dotnetRunMessages": true,
+      "applicationUrl": "https://api-makana.dev.localhost:55507;http://api-makana.dev.localhost:55508"
+    },
+    "Testing": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Testing",
+        "DOTNET_ENVIRONMENT": "Testing"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "https://api-makana.dev.localhost:55507;http://api-makana.dev.localhost:55508"
+    },
+    "NonProd": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "NonProd",
+        "DOTNET_ENVIRONMENT": "NonProd"
+      },
+      "applicationUrl": "https://api.makana.foo;http://api.makana.foo"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker",
+      "launchBrowser": true,
+      "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}",
+      "environmentVariables": {
+        "ASPNETCORE_HTTPS_PORTS": "8081",
+        "ASPNETCORE_HTTP_PORTS": "8080"
+      },
+      "publishAllPorts": true,
+      "useSSL": true
     }
   }
 }

@@ -1,0 +1,24 @@
+@using Makana.WebConsole.Models
+
+<section class="stack-console-block stack-live-console-view" aria-live="@AriaLive">
+    <div id="@ContainerId" class="stack-console-lines" data-console-view="@ViewName">
+        @foreach (var line in Lines)
+        {
+            <StackConsoleLine Line="line" DomId="@StackConsoleDomIds.For(ViewName, line.Key)" />
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public required string ViewName { get; set; }
+
+    [Parameter, EditorRequired]
+    public required string ContainerId { get; set; }
+
+    [Parameter, EditorRequired]
+    public required IReadOnlyList<UpdateViewConsoleLine> Lines { get; set; }
+
+    [Parameter]
+    public string AriaLive { get; set; } = "polite";
+}

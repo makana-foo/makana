@@ -1,27 +1,36 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Makana.Api.Endpoints;
 
 internal static class WebhooksEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapWebhooksEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapMethods("/api/orgs/{organization}/hooks/{webhookname}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks/{webhookname}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/hooks", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/hooks/{webhookname}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/hooks/{webhookname}/deliveries", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks/{webhookname}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks/{webhookname}/deliveries", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/hooks/{webhookname}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks/{webhookname}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/hooks", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/orgs/{organization}/hooks/{webhookname}/ping", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{organization}/{project}/{stack}/hooks/{webhookname}/ping", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        var orgHooks = app.MapGroup("/api/orgs/{org}")
+            .RequireAuthorization("OrgRouteAccess");
+        orgHooks.MapMethods("/hooks/{webhookname}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        orgHooks.MapMethods("/hooks", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        orgHooks.MapMethods("/hooks/{webhookname}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        orgHooks.MapMethods("/hooks/{webhookname}/deliveries", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        orgHooks.MapMethods("/hooks/{webhookname}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        orgHooks.MapMethods("/hooks", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        orgHooks.MapMethods("/hooks/{webhookname}/ping", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+
+        var stackHooks = app.MapGroup(StackRouteConventions.ApiStackRoute)
+            .RequireAuthorization("OrgRouteAccess");
+        stackHooks.MapMethods("/hooks/{webhookname}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackHooks.MapMethods("/hooks", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackHooks.MapMethods("/hooks/{webhookname}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackHooks.MapMethods("/hooks/{webhookname}/deliveries", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackHooks.MapMethods("/hooks/{webhookname}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackHooks.MapMethods("/hooks", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
+        stackHooks.MapMethods("/hooks/{webhookname}/ping", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."))
+            .RequireAuthorization("ApiToken");
 
         return app;
     }

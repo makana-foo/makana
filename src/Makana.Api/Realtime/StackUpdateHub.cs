@@ -4,13 +4,25 @@ namespace Makana.Api.Realtime;
 
 public sealed class StackUpdateHub : Hub
 {
-    public Task JoinStackUpdate(string org, string project, string stack, string updateId)
+    public override async Task OnConnectedAsync()
     {
-        return Groups.AddToGroupAsync(Context.ConnectionId, StackUpdateGroups.For(org, project, stack, updateId));
-    }
+        var httpContext = Context.GetHttpContext();
+        var org = httpContext?.Request.Query["org"].ToString();
+        var project = httpContext?.Request.Query["project"].ToString();
+        var stack = httpContext?.Request.Query["stack"].ToString();
+        var updateId = httpContext?.Request.Query["updateId"].ToString();
 
-    public Task LeaveStackUpdate(string org, string project, string stack, string updateId)
-    {
-        return Groups.RemoveFromGroupAsync(Context.ConnectionId, StackUpdateGroups.For(org, project, stack, updateId));
+        if (string.IsNullOrWhiteSpace(org) ||
+            string.IsNullOrWhiteSpace(project) ||
+            string.IsNullOrWhiteSpace(stack) ||
+            string.IsNullOrWhiteSpace(updateId))
+        {
+            Context.Abort();
+            return;
+        }
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, StackUpdateGroups.For(org, project, stack, updateId));
+
+        await base.OnConnectedAsync();
     }
 }

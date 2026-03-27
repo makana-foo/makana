@@ -1,8 +1,6 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Makana.Api.Contracts;
-using Makana.Api.Security;
 using Makana.Api.Storage;
 using Makana.Api.Updates;
 using Makana.Journaling.Checkpointing;
@@ -12,88 +10,46 @@ namespace Makana.Api.Endpoints;
 
 internal static class StackEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    public static IEndpointRouteBuilder MapStackEndpoints(this IEndpointRouteBuilder app, BackendStore store, byte[] secretKey)
+    public static IEndpointRouteBuilder MapStackEndpoints(
+        this IEndpointRouteBuilder app,
+        StackCatalogQueryRepository stackQueries,
+        StackCatalogCommandRepository stackCommands,
+        UpdateCommandRepository updateCommands,
+        UpdateQueryRepository updateQueries,
+        UpdateLogRepository updateLog,
+        byte[] secretKey)
     {
-        app.MapGet("/api/stacks/{org}", async (HttpContext context, HttpRequest request, string org, EndpointHelpers endpointHelpers, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
+        static IResult InvalidStackNameResponse()
+            => Results.BadRequest(new ErrorResponse(400, StackRouteConventions.InvalidStackNameMessage, null));
+
+        var orgGroup = app.MapGroup("/api/stacks/{org}");
+        orgGroup.RequireAuthorization("OrgRouteAccess");
+
+        orgGroup.MapGet("/", async (HttpRequest request, string org, EndpointHelpers endpointHelpers) =>
         {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
+            var rows = stackQueries.ListStacks(org, null);
+            var stackSummaries = await endpointHelpers.BuildStackSummariesAsync(updateQueries, request, rows);
+            return Results.Ok(new ListStacksResponse(stackSummaries, null));
+        });
 
-            var rows = await store.ListStacksByNamespaceIdsAsync(null, [namespaceResolution.NamespaceId!]);
-            var stacks = await endpointHelpers.BuildStackSummariesAsync(store, request, rows);
-            return Results.Ok(new ListStacksResponse(stacks, null));
-        }).RequireAuthorization();
+        var projectGroup = orgGroup.MapGroup("/{project}");
+        projectGroup.RequireAuthorization("OrgRouteAccess");
 
-        app.MapMethods("/api/stacks/{org}/{project}", ["HEAD"], async (HttpContext context, string org, string project, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
+        projectGroup.MapMethods("/", ["HEAD"], (string org, string project) =>
         {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
-
-            var exists = await store.ProjectExistsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project);
+            var exists = stackQueries.ProjectExists(org, project);
             return exists ? Results.Ok() : Results.NotFound();
-        }).RequireAuthorization();
+        });
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}", async (HttpContext context, string org, string project, string stack, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
+        projectGroup.MapPost("/", (string org, string project, CreateStackRequest request) =>
         {
-            var decodedProject = Uri.UnescapeDataString(project);
-            var decodedStack = Uri.UnescapeDataString(stack);
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
+            if (!StackRouteConventions.IsValidStackName(request.StackName))
             {
-                return namespaceResolution.Failure;
+                return InvalidStackNameResponse();
             }
 
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, decodedProject, decodedStack);
-            if (ids is null)
-            {
-                return Results.NotFound();
-            }
-
-            var data = await store.GetStackDataByNamespaceIdAsync(namespaceResolution.NamespaceId!, decodedProject, decodedStack);
-
-            Dictionary<string, string>? tags = null;
-            if (data?.TagsJson is not null)
-            {
-                tags = JsonSerializer.Deserialize(
-                    data.Value.TagsJson,
-                    StackEndpointsJsonContext.Default.DictionaryStringString);
-            }
-
-            var activeUpdate = await store.GetActiveUpdateIdAsync(ids.Value.StackId) ?? string.Empty;
-            var deployment = await store.GetLatestDeploymentAsync(ids.Value.StackId);
-            var version = deployment?.Version ?? 0;
-
-            var result = new Stack(
-                ids.Value.StackId,
-                org,
-                decodedProject,
-                decodedStack,
-                null,
-                activeUpdate,
-                tags,
-                null,
-                version);
-            return Results.Ok(result);
-        }).RequireAuthorization();
-
-        app.MapPost("/api/stacks/{org}/{project}", async (HttpContext context, string org, string project, CreateStackRequest request, NamespaceRoutingHelpers namespaceRoutingHelpers) =>
-        {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
-
-            var existing = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, request.StackName);
-            if (existing != null)
+            var existing = stackQueries.GetStackIds(org, project, request.StackName);
+            if (existing is not null)
             {
                 return Results.Conflict(new ErrorResponse(409, "stack already exists", null));
             }
@@ -106,8 +62,8 @@ internal static class StackEndpoints
                 : JsonSerializer.Serialize(
                     request.Config.Config,
                     StackEndpointsJsonContext.Default.DictionaryStringStackConfigValue);
-            var stackId = await store.CreateStackByNamespaceIdAsync(
-                namespaceResolution.NamespaceId!,
+            var stackId = stackCommands.CreateStack(
+                org,
                 project,
                 request.StackName,
                 tagsJson,
@@ -140,32 +96,74 @@ internal static class StackEndpoints
                     return Results.BadRequest(new ErrorResponse(400, "state is invalid", null));
                 }
 
-                var initialVersion = await store.GetNextStackVersionAsync(stackId);
-                await store.SaveInitialDeploymentForStackAsync(
+                var initialVersion = updateCommands.GetNextStackVersion(stackId);
+                stackCommands.SaveInitialDeploymentForStack(
                     stackId,
                     initialVersion,
                     initialSchemaVersion,
-                    initialState.Deployment.GetRawText(),
-                    context.RequestAborted);
+                    initialState.Deployment.GetRawText());
             }
 
             return Results.Ok();
-        }).RequireAuthorization();
+        }).RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/rename", async (
+        var stackGroup = projectGroup.MapGroup(StackRouteConventions.RelativeStackRoute);
+        stackGroup.RequireAuthorization("OrgRouteAccess");
+
+        stackGroup.MapGet("/", (string org, string project, string stack) =>
+        {
+            var ids = stackQueries.GetStackIds(org, project, stack);
+            if (ids is null)
+            {
+                return Results.NotFound();
+            }
+
+            var data = stackQueries.GetStackData(org, project, stack);
+
+            Dictionary<string, string>? tags = null;
+            if (data?.TagsJson is not null)
+            {
+                tags = JsonSerializer.Deserialize(
+                    data.Value.TagsJson,
+                    StackEndpointsJsonContext.Default.DictionaryStringString);
+            }
+
+            var activeUpdate = stackQueries.GetActiveUpdateId(ids.Value.StackId) ?? string.Empty;
+            var deployment = updateQueries.GetLatestDeployment(ids.Value.StackId);
+            var version = deployment?.Version ?? 0;
+
+            var result = new Stack(
+                ids.Value.StackId,
+                org,
+                project,
+                stack,
+                null,
+                activeUpdate,
+                tags,
+                null,
+                version);
+            return Results.Ok(result);
+        });
+
+        stackGroup.MapPost("/rename", async (
             string org,
             string project,
             string stack,
             StackRenameRequest request,
             CancellationToken cancellationToken) =>
         {
-            await store.RenameStackAsync(org, project, stack, request.NewName, request.NewProject, cancellationToken);
-            return Results.Ok();
-        }).RequireAuthorization("OrgRouteAccess");
+            if (!StackRouteConventions.IsValidStackName(request.NewName))
+            {
+                return InvalidStackNameResponse();
+            }
 
-        app.MapDelete("/api/stacks/{org}/{project}/{stack}", async (string org, string project, string stack, bool force = false) =>
+            stackCommands.RenameStack(org, project, stack, request.NewName, request.NewProject, cancellationToken);
+            return Results.Ok();
+        }).RequireAuthorization("ApiToken");
+
+        stackGroup.MapDelete("/", (string org, string project, string stack, bool force = false) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
@@ -173,7 +171,7 @@ internal static class StackEndpoints
 
             if (!force)
             {
-                var deployment = await store.GetLatestDeploymentAsync(ids.Value.StackId);
+                var deployment = updateQueries.GetLatestDeployment(ids.Value.StackId);
                 if (deployment is not null)
                 {
                     try
@@ -206,23 +204,23 @@ internal static class StackEndpoints
                 }
             }
 
-            await store.DeleteStackAsync(org, project, stack);
+            stackCommands.DeleteStack(org, project, stack);
             return Results.Ok();
-        }).RequireAuthorization("OrgRouteAccess");
+        }).RequireAuthorization("ApiToken");
 
-        app.MapPatch("/api/stacks/{org}/{project}/{stack}/tags", async (string org, string project, string stack, Dictionary<string, string> tags) =>
+        stackGroup.MapPatch("/tags", (string org, string project, string stack, Dictionary<string, string> tags) =>
         {
-            await store.UpdateTagsAsync(
+            stackCommands.UpdateTags(
                 org,
                 project,
                 stack,
                 JsonSerializer.Serialize(tags, StackEndpointsJsonContext.Default.DictionaryStringString));
             return Results.Ok();
-        }).RequireAuthorization("OrgRouteAccess");
+        }).RequireAuthorization("ApiToken");
 
-        app.MapPut("/api/stacks/{org}/{project}/{stack}/config", async (string org, string project, string stack, StackConfig config) =>
+        stackGroup.MapPut("/config", (string org, string project, string stack, StackConfig config) =>
         {
-            await store.UpdateConfigAsync(
+            stackCommands.UpdateConfig(
                 org,
                 project,
                 stack,
@@ -230,22 +228,23 @@ internal static class StackEndpoints
                     config.Config,
                     StackEndpointsJsonContext.Default.DictionaryStringStackConfigValue));
             return Results.Ok();
-        }).RequireAuthorization("OrgRouteAccess");
+        }).RequireAuthorization("ApiToken");
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/logs", () =>
+        stackGroup.MapGet("/logs", () =>
         {
-            return Results.Ok(new LogsResult(Array.Empty<LogEntry>()));
-        }).RequireAuthorization("OrgRouteAccess");
+            throw new NotImplementedException();
+            return Results.Ok(new LogsResult([]));
+        });
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/export", async (string org, string project, string stack, EndpointHelpers endpointHelpers) =>
+        stackGroup.MapGet("/export", async (string org, string project, string stack, EndpointHelpers endpointHelpers) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var deployment = await store.GetLatestDeploymentEnvelopeAsync(ids.Value.StackId);
+            var deployment = updateQueries.GetLatestDeploymentEnvelope(ids.Value.StackId);
             if (deployment is null)
             {
                 var emptyDeployment = JsonDocument.Parse(endpointHelpers.CreateEmptyDeploymentJson()).RootElement;
@@ -262,17 +261,17 @@ internal static class StackEndpoints
                     deployment.Value.SchemaVersion),
                 JsonDocument.Parse(deployment.Value.DeploymentJson).RootElement);
             return Results.Ok(payload);
-        }).RequireAuthorization("OrgRouteAccess");
+        });
 
-        app.MapGet("/api/stacks/{org}/{project}/{stack}/export/{version}", async (string org, string project, string stack, int version) =>
+        stackGroup.MapGet("/export/{version}", async (string org, string project, string stack, int version) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
             }
 
-            var deployment = await store.GetDeploymentEnvelopeByVersionAsync(ids.Value.StackId, version);
+            var deployment = updateQueries.GetDeploymentEnvelopeByVersion(ids.Value.StackId, version);
             if (deployment is null)
             {
                 return Results.NotFound();
@@ -285,11 +284,11 @@ internal static class StackEndpoints
                     deployment.Value.SchemaVersion),
                 JsonDocument.Parse(deployment.Value.DeploymentJson).RootElement);
             return Results.Ok(payload);
-        }).RequireAuthorization("OrgRouteAccess");
+        });
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/import", async (string org, string project, string stack, UntypedDeployment deployment, ImportUpdateEventFactory importUpdateEventFactory, CancellationToken cancellationToken) =>
+        stackGroup.MapPost("/import", async (string org, string project, string stack, UntypedDeployment deployment, ImportUpdateEventFactory importUpdateEventFactory, CancellationToken cancellationToken) =>
         {
-            var ids = await store.GetStackIdsAsync(org, project, stack);
+            var ids = stackQueries.GetStackIds(org, project, stack);
             if (ids is null)
             {
                 return Results.NotFound();
@@ -319,50 +318,48 @@ internal static class StackEndpoints
                 return Results.BadRequest(new ErrorResponse(400, ex.Message, null));
             }
 
-            var rewrittenDeploymentJson = store.RewriteImportedDeploymentForTargetStack(
+            var rewrittenDeploymentJson = stackCommands.RewriteImportedDeploymentForTargetStack(
                 deployment.Deployment.GetRawText(),
                 org,
                 project,
                 stack);
             using var rewrittenDeployment = JsonDocument.Parse(rewrittenDeploymentJson);
 
-            var updateId = await store.CreateUpdateAsync(ids.Value.StackId, "import", rewrittenDeploymentJson);
-            var version = await store.GetNextStackVersionAsync(ids.Value.StackId);
-            await store.SaveCheckpointAsync(updateId, rewrittenDeploymentJson, version, cancellationToken, persistedSchemaVersion);
+            var updateId = updateCommands.CreateUpdate(ids.Value.StackId, "import", rewrittenDeploymentJson);
+            var version = updateCommands.GetNextStackVersion(ids.Value.StackId);
+            updateLog.SaveCheckpoint(updateId, rewrittenDeploymentJson, version, persistedSchemaVersion);
             var events = importUpdateEventFactory.CreateEvents(rewrittenDeployment.RootElement);
-            await store.RecordEventsAsync(
+            updateLog.RecordEvents(
                 updateId,
-                events.Select(static ev => JsonSerializer.Serialize(ev, PulumiEngineEventJsonContext.Default.EngineEvent)),
-                cancellationToken);
-            await store.CompleteUpdateAsync(updateId, "succeeded", version, cancellationToken);
+                events.Select(static ev => JsonSerializer.Serialize(ev, PulumiEngineEventJsonContext.Default.EngineEvent)));
+            updateCommands.CompleteUpdate(updateId, "succeeded", version);
             return Results.Ok(new ImportStackResponse(updateId));
-        }).RequireAuthorization("OrgRouteAccess");
+        }).RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/encrypt",
+        stackGroup.MapPost("/encrypt",
             (EncryptValueRequest request, EndpointHelpers endpointHelpers) => Results.Ok(new EncryptValueResponse(endpointHelpers.Encrypt(secretKey, request.Plaintext))))
-            .RequireAuthorization("OrgRouteAccess");
+            .RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/decrypt",
+        stackGroup.MapPost("/decrypt",
             (DecryptValueRequest request, EndpointHelpers endpointHelpers) => Results.Ok(new DecryptValueResponse(endpointHelpers.Decrypt(secretKey, request.Ciphertext))))
-            .RequireAuthorization("OrgRouteAccess");
+            .RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/decrypt/log-decryption",
+        stackGroup.MapPost("/decrypt/log-decryption",
             (LogDecryptionEventRequest request) => Results.Ok())
-            .RequireAuthorization("OrgRouteAccess");
+            .RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/decrypt/log-batch-decryption",
+        stackGroup.MapPost("/decrypt/log-batch-decryption",
             (LogDecryptionEventRequest request) => Results.Ok())
-            .RequireAuthorization("OrgRouteAccess");
+            .RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/batch-encrypt",
+        stackGroup.MapPost("/batch-encrypt",
             (BatchEncryptRequest request, EndpointHelpers endpointHelpers) =>
             {
                 var cipher = request.Plaintexts.Select(p => endpointHelpers.Encrypt(secretKey, p)).ToArray();
                 return Results.Ok(new BatchEncryptResponse(cipher));
-            })
-            .RequireAuthorization("OrgRouteAccess");
+            }).RequireAuthorization("ApiToken");
 
-        app.MapPost("/api/stacks/{org}/{project}/{stack}/batch-decrypt",
+        stackGroup.MapPost("/batch-decrypt",
             (JsonElement request, EndpointHelpers endpointHelpers) =>
             {
                 if (!request.TryGetProperty("ciphertexts", out var ciphertextsElement) ||
@@ -401,34 +398,8 @@ internal static class StackEndpoints
                 }
 
                 return Results.Ok(new BatchDecryptResponse(plaintexts));
-            })
-            .RequireAuthorization("OrgRouteAccess");
+            }).RequireAuthorization("ApiToken");
 
         return app;
-    }
-
-    private static async Task<(string? NamespaceId, IResult? Failure)> ResolveNamespaceIdForRouteAsync(
-        HttpContext context,
-        NamespaceRoutingHelpers namespaceRoutingHelpers,
-        string org)
-    {
-        var userId = context.User.FindFirst(PulumiAuthenticationDefaults.UserIdClaim)?.Value
-            ?? context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return (null, Results.Unauthorized());
-        }
-
-        var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
-        var namespaceId = await namespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
-            userId,
-            org,
-            tokenOrgId);
-        if (!string.IsNullOrWhiteSpace(namespaceId))
-        {
-            return (namespaceId, null);
-        }
-
-        return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
     }
 }

@@ -55,6 +55,8 @@ namespace Makana.Api.Endpoints;
 [JsonSerializable(typeof(UpdateViewConsoleSegment))]
 [JsonSerializable(typeof(UpdateViewConsoleLineDelta[]))]
 [JsonSerializable(typeof(UpdateViewConsoleLineDelta))]
+[JsonSerializable(typeof(LiveUpdateViewMessage))]
+[JsonSerializable(typeof(LiveUpdateViewChanges))]
 [JsonSerializable(typeof(StackOverviewResponse))]
 [JsonSerializable(typeof(UpdateContentsFilesResponse))]
 [JsonSerializable(typeof(ErrorResponse))]

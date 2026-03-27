@@ -4,32 +4,36 @@
     ViewData["Title"] = "Sign In";
     ViewData["HideChrome"] = true;
     var returnUrl = Request.Query["returnUrl"].ToString();
+    var owner = Model.ResolvedOwner;
 }
 
-<section aria-labelledby="signin-heading">
+<section class="auth-shell" aria-labelledby="signin-heading">
     <article class="card">
         <header>
             <h1 id="signin-heading">Sign In</h1>
-            <p class="text-light">Authentication is delegated to the configured OIDC provider.</p>
+            <p class="text-light">Choose an OpenID Connect sign-in option. Makana never asks for your password directly.</p>
         </header>
 
-        <form method="post" asp-page-handler="SignIn">
+        <form method="post" asp-page-handler="SignIn" hx-boost="false" class="auth-provider-form">
             <input type="hidden" name="returnUrl" value="@returnUrl" />
-            <div class="vstack">
-                <label data-field>
-                    Email or Username
-                    <input id="emailOrUsername" name="emailOrUsername" type="text" autocomplete="username" disabled />
-                </label>
-
-                <label data-field>
-                    Password
-                    <input id="password" name="password" type="password" autocomplete="current-password" disabled />
-                </label>
+            @if (!string.IsNullOrWhiteSpace(owner))
+            {
+                <input type="hidden" name="owner" value="@owner" />
+            }
+            <div class="auth-provider-list" role="list" aria-label="Available sign-in providers">
+                @foreach (var provider in Model.Providers)
+                {
+                    <button class="auth-provider-button" type="submit" name="provider" value="@provider.Id">
+                        <span class="auth-provider-button__badge" aria-hidden="true">@provider.BadgeText</span>
+                        <span class="auth-provider-button__label">@provider.ButtonLabel</span>
+                        <span class="auth-provider-button__meta" aria-hidden="true">@provider.DisplayName</span>
+                    </button>
+                }
             </div>
-
-            <footer class="hstack justify-end mt-4">
-                <button type="submit">Continue to sign in</button>
-            </footer>
         </form>
+
+        <p class="auth-provider-note text-light">
+            Authentication is delegated to the configured OIDC provider and its upstream identity methods.
+        </p>
     </article>
 </section>

@@ -1,17 +1,16 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace Makana.Api.Endpoints;
 
 internal static class InsightsAccountsEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapInsightsAccountsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapMethods("/api/preview/insights/pulumi/accounts", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/preview/insights/pulumi/accounts/{accountName}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/preview/insights/pulumi/accounts/{accountName}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/preview/insights/pulumi/accounts/{accountName}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        var accounts = app.MapGroup("/api/preview/insights/pulumi/accounts")
+            .RequireAuthorization("ApiToken");
+
+        accounts.MapMethods(string.Empty, ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        accounts.MapMethods("/{accountName}", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        accounts.MapMethods("/{accountName}", ["PATCH"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        accounts.MapMethods("/{accountName}", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
 
         return app;
     }

@@ -5,11 +5,14 @@ namespace Makana.Api.Endpoints;
 
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
 [JsonSerializable(typeof(ServiceUser))]
+[JsonSerializable(typeof(UpdateUserThemeRequest))]
 [JsonSerializable(typeof(ListStacksResponse))]
 [JsonSerializable(typeof(GetDefaultOrganizationResponse))]
 [JsonSerializable(typeof(CliVersionResponse))]
 [JsonSerializable(typeof(ErrorResponse))]
 [JsonSerializable(typeof(TokenExchangeGrantResponse))]
+[JsonSerializable(typeof(WebConsoleSessionTokenRequest))]
+[JsonSerializable(typeof(WebConsoleSessionTokenResponse))]
 [JsonSerializable(typeof(CapabilitiesResponse))]
 internal partial class CoreEndpointsJsonContext : JsonSerializerContext
 {

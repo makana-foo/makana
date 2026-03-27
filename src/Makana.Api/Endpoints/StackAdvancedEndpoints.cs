@@ -1,118 +1,106 @@
-using System.Diagnostics.CodeAnalysis;
 using Makana.Api.Contracts;
-using Makana.Api.Security;
 using Makana.Api.Storage;
 using Makana.Api.Updates;
+using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Makana.Api.Endpoints;
 
 internal static class StackAdvancedEndpoints
 {
-    [RequiresUnreferencedCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
-    [RequiresDynamicCode("Calls Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(String, Delegate)")]
     public static IEndpointRouteBuilder MapStackAdvancedEndpoints(this IEndpointRouteBuilder app)
     {
-        static async Task<(string? NamespaceId, IResult? Failure)> ResolveNamespaceIdForRouteAsync(
-            HttpContext context,
-            NamespaceRoutingHelpers namespaceRoutingHelpers,
-            string org)
-        {
-            var userId = context.User.FindFirst(PulumiAuthenticationDefaults.UserIdClaim)?.Value
-                ?? context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return (null, Results.Unauthorized());
-            }
+        var stackGroup = app.MapGroup(StackRouteConventions.ApiStackRoute)
+            .RequireAuthorization("OrgRouteAccess");
 
-            var tokenOrgId = context.User.FindFirst(PulumiAuthenticationDefaults.OrgIdClaim)?.Value;
-            var namespaceId = await namespaceRoutingHelpers.ResolveAccessibleNamespaceIdAsync(
-                userId,
-                org,
-                tokenOrgId);
-            if (!string.IsNullOrWhiteSpace(namespaceId))
-            {
-                return (namespaceId, null);
-            }
-
-            return (null, Results.NotFound(new ErrorResponse(404, "Organization not found", null)));
-        }
-
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/config", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/tags/{tagName}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/config", ["GET"], async (HttpContext context, string org, string project, string stack, NamespaceRoutingHelpers namespaceRoutingHelpers, BackendStore store) =>
-        {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
-
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
-            if (ids is null)
-            {
-                return Results.NotFound();
-            }
-
-            var config = await store.GetStackConfigByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
-            return Results.Ok(new StackConfig(config));
-        }).RequireAuthorization("OrgRouteAccess");
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/downstreamreferences", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/metadata", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/resources/count", ["GET"], async (HttpContext context, string org, string project, string stack, NamespaceRoutingHelpers namespaceRoutingHelpers, VersionedUpdatePageMaterializer versionedUpdatePageMaterializer, BackendStore store, CancellationToken cancellationToken) =>
-        {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
-
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
-            if (ids is null)
-            {
-                return Results.NotFound();
-            }
-
-            var response = await versionedUpdatePageMaterializer.BuildResourceCountAsync(ids.Value.StackId, cancellationToken);
-            return response is null ? Results.NotFound() : Results.Ok(response);
-        }).RequireAuthorization("OrgRouteAccess");
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/resources/latest", ["GET"], async (HttpContext context, string org, string project, string stack, NamespaceRoutingHelpers namespaceRoutingHelpers, VersionedUpdatePageMaterializer versionedUpdatePageMaterializer, BackendStore store, CancellationToken cancellationToken) =>
-        {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
-
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
-            if (ids is null)
-            {
-                return Results.NotFound();
-            }
-
-            var response = await versionedUpdatePageMaterializer.BuildLatestResourcesAsync(ids.Value.StackId, cancellationToken);
-            return response is null ? Results.NotFound() : Results.Ok(response);
-        }).RequireAuthorization("OrgRouteAccess");
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/resources/{version}", ["GET"], async (HttpContext context, string org, string project, string stack, int version, NamespaceRoutingHelpers namespaceRoutingHelpers, VersionedUpdatePageMaterializer versionedUpdatePageMaterializer, BackendStore store, CancellationToken cancellationToken) =>
-        {
-            var namespaceResolution = await ResolveNamespaceIdForRouteAsync(context, namespaceRoutingHelpers, org);
-            if (namespaceResolution.Failure is not null)
-            {
-                return namespaceResolution.Failure;
-            }
-
-            var ids = await store.GetStackIdsByNamespaceIdAsync(namespaceResolution.NamespaceId!, project, stack);
-            if (ids is null)
-            {
-                return Results.NotFound();
-            }
-
-            var response = await versionedUpdatePageMaterializer.BuildResourcesForVersionAsync(ids.Value.StackId, version, cancellationToken);
-            return response is null ? Results.NotFound() : Results.Ok(response);
-        }).RequireAuthorization("OrgRouteAccess");
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/updates/latest/previews", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/tags", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
-        app.MapMethods("/api/stacks/{org}/{project}/{stack}/transfer", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapMethods("/config", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapMethods("/tags/{tagName}", ["DELETE"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapGet("/config", HandleGetConfigAsync);
+        stackGroup.MapMethods("/downstreamreferences", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapMethods("/metadata", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapGet("/resources/count", HandleGetResourceCountAsync);
+        stackGroup.MapGet("/resources/latest", HandleGetLatestResourcesAsync);
+        stackGroup.MapGet("/resources/{version:int}", HandleGetResourcesByVersionAsync);
+        stackGroup.MapMethods("/updates/latest/previews", ["GET"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapMethods("/tags", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
+        stackGroup.MapMethods("/transfer", ["POST"], static (HttpContext _) => throw new NotImplementedException("Endpoint not implemented."));
 
         return app;
+    }
+
+    private static Results<Ok<StackConfig>, NotFound> HandleGetConfigAsync(
+        string org,
+        string project,
+        string stack,
+        StackCatalogQueryRepository stackQueries)
+    {
+        var ids = stackQueries.GetStackIds(org, project, stack);
+        if (ids is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var config = stackQueries.GetStackConfig(org, project, stack);
+        return TypedResults.Ok(new StackConfig(config));
+    }
+
+    private static async Task<Results<Ok<StackResourceCountResponse>, NotFound>> HandleGetResourceCountAsync(
+        string org,
+        string project,
+        string stack,
+        VersionedUpdatePageMaterializer versionedUpdatePageMaterializer,
+        StackCatalogQueryRepository stackQueries,
+        CancellationToken cancellationToken)
+    {
+        var stackId = ResolveStackId(stackQueries, org, project, stack);
+        if (stackId is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var response = await versionedUpdatePageMaterializer.BuildResourceCountAsync(stackId, cancellationToken);
+        return response is null ? TypedResults.NotFound() : TypedResults.Ok(response);
+    }
+
+    private static async Task<Results<Ok<StackResourcesResponse>, NotFound>> HandleGetLatestResourcesAsync(
+        string org,
+        string project,
+        string stack,
+        VersionedUpdatePageMaterializer versionedUpdatePageMaterializer,
+        StackCatalogQueryRepository stackQueries,
+        CancellationToken cancellationToken)
+    {
+        var stackId = ResolveStackId(stackQueries, org, project, stack);
+        if (stackId is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var response = await versionedUpdatePageMaterializer.BuildLatestResourcesAsync(stackId, cancellationToken);
+        return response is null ? TypedResults.NotFound() : TypedResults.Ok(response);
+    }
+
+    private static async Task<Results<Ok<StackResourcesResponse>, NotFound>> HandleGetResourcesByVersionAsync(
+        string org,
+        string project,
+        string stack,
+        int version,
+        VersionedUpdatePageMaterializer versionedUpdatePageMaterializer,
+        StackCatalogQueryRepository stackQueries,
+        CancellationToken cancellationToken)
+    {
+        var stackId = ResolveStackId(stackQueries, org, project, stack);
+        if (stackId is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var response = await versionedUpdatePageMaterializer.BuildResourcesForVersionAsync(stackId, version, cancellationToken);
+        return response is null ? TypedResults.NotFound() : TypedResults.Ok(response);
+    }
+
+    private static string? ResolveStackId(StackCatalogQueryRepository stackQueries, string org, string project, string stack)
+    {
+        var ids = stackQueries.GetStackIds(org, project, stack);
+        return ids?.StackId;
     }
 }

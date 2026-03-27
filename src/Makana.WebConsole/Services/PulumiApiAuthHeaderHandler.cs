@@ -1,38 +1,17 @@
 using System.Net.Http.Headers;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace Makana.WebConsole.Services;
 
-public sealed class PulumiApiAuthHeaderHandler(
-    IHttpContextAccessor httpContextAccessor,
-    IConfiguration configuration)
-    : DelegatingHandler
+internal sealed class PulumiApiAuthHeaderHandler(WebConsoleApiTokenAccessor apiTokenAccessor) : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         request.Headers.Authorization = null;
 
-        var httpContext = httpContextAccessor.HttpContext;
-        if (httpContext?.User?.Identity?.IsAuthenticated == true)
+        var apiToken = await apiTokenAccessor.GetApiTokenAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(apiToken))
         {
-            var authResult = await httpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            var jwt = authResult.Properties?.GetTokenValue("access_token")
-                ?? await httpContext.GetTokenAsync(CookieAuthenticationDefaults.AuthenticationScheme, "access_token");
-
-            if (!string.IsNullOrWhiteSpace(jwt))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
-            }
-        }
-
-        if (request.Headers.Authorization is null)
-        {
-            var apiToken = configuration["MAKANA_WEBCONSOLE_API_TOKEN"];
-            if (!string.IsNullOrWhiteSpace(apiToken))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("token", apiToken);
-            }
+            request.Headers.Authorization = new AuthenticationHeaderValue("token", apiToken);
         }
 
         return await base.SendAsync(request, cancellationToken);

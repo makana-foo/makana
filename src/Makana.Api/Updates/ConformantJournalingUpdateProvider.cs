@@ -12,7 +12,9 @@ using Microsoft.Data.Sqlite;
 namespace Makana.Api.Updates;
 
 internal sealed class ConformantJournalingUpdateProvider(
-    BackendStore store,
+    UpdateCommandRepository updateCommands,
+    UpdateQueryRepository updateQueries,
+    UpdateLogRepository updateLog,
     EndpointHelpers endpointHelpers) : IUpdateCheckpointJournalingProvider
 {
     private const int SupportedJournalVersion = 1;
@@ -33,11 +35,10 @@ internal sealed class ConformantJournalingUpdateProvider(
         CancellationToken cancellationToken)
     {
         var schemaVersion = DeploymentSchemaPolicy.ValidateSupportedVersion(request.Version);
-        await store.SaveCheckpointAsync(
+        updateLog.SaveCheckpoint(
             updateId,
             request.Deployment.GetRawText(),
             request.Version,
-            cancellationToken,
             schemaVersion);
         return new UpdateMutationResult(UpdateMutationStatus.Ok);
     }
@@ -117,7 +118,7 @@ internal sealed class ConformantJournalingUpdateProvider(
             entriesJson.Add(entries.GetRawText());
         }
 
-        await store.RecordJournalEntriesAsync(updateId, entriesJson, cancellationToken);
+        updateLog.RecordJournalEntries(updateId, entriesJson);
 
         // Pulumi may emit "write" entries containing full snapshots. Persist the latest
         // immediately when present to improve recovery if the process crashes mid-update.
@@ -128,11 +129,10 @@ internal sealed class ConformantJournalingUpdateProvider(
                 updateId,
                 latestSnapshot.Value.GetRawText(),
                 cancellationToken);
-            await store.SaveCheckpointAsync(
+            updateLog.SaveCheckpoint(
                 updateId,
                 latestSnapshot.Value.GetRawText(),
                 version: 0,
-                cancellationToken,
                 schemaVersion: schemaVersion);
         }
     }
@@ -147,21 +147,21 @@ internal sealed class ConformantJournalingUpdateProvider(
         string updateId,
         CancellationToken cancellationToken)
     {
-        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+        var updateContext = updateCommands.GetUpdateContext(updateId);
         if (updateContext is null)
         {
             return false;
         }
 
-        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
+        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
         var baselineDeploymentJson = latestCheckpoint?.DeploymentJson;
         if (string.IsNullOrWhiteSpace(baselineDeploymentJson))
         {
-            var latestDeployment = await store.GetLatestDeploymentAsync(updateContext.Value.StackId, cancellationToken);
+            var latestDeployment = updateQueries.GetLatestDeployment(updateContext.Value.StackId);
             baselineDeploymentJson = latestDeployment?.DeploymentJson;
         }
 
-        var journalEntriesJson = await store.GetJournalEntriesAsync(updateId, cancellationToken);
+        var journalEntriesJson = updateLog.GetJournalEntries(updateId);
         var journalEntries = ParseJournalEntries(journalEntriesJson);
         if (journalEntries.Count == 0)
         {
@@ -177,11 +177,10 @@ internal sealed class ConformantJournalingUpdateProvider(
             materializedDeploymentJson,
             cancellationToken);
 
-        await store.SaveCheckpointAsync(
+        updateLog.SaveCheckpoint(
             updateId,
             materializedDeploymentJson,
             updateContext.Value.Version,
-            cancellationToken,
             schemaVersion: schemaVersion);
         return true;
     }
@@ -193,17 +192,17 @@ internal sealed class ConformantJournalingUpdateProvider(
         string requestSignature,
         Func<BaselineDeployment, CheckpointSession> sessionFactory,
         Func<CheckpointSession, CheckpointApplyResult> applyMutation,
-        Func<BackendStore.StoredUpdateCheckpoint, bool> legacyDuplicateMatcher,
+        Func<StoredUpdateCheckpoint, bool> legacyDuplicateMatcher,
         int schemaVersion,
         CancellationToken cancellationToken)
     {
-        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+        var updateContext = updateCommands.GetUpdateContext(updateId);
         if (updateContext is null)
         {
             return new UpdateMutationResult(UpdateMutationStatus.NotFound);
         }
 
-        var existingAtSequence = await store.GetCheckpointBySequenceForUpdateAsync(updateId, sequenceNumber, cancellationToken);
+        var existingAtSequence = updateLog.GetCheckpointBySequenceForUpdate(updateId, sequenceNumber);
         if (existingAtSequence is not null)
         {
             if (IsDuplicate(existingAtSequence.Value, requestSignature, legacyDuplicateMatcher))
@@ -216,7 +215,7 @@ internal sealed class ConformantJournalingUpdateProvider(
                 $"checkpoint sequence {sequenceNumber} was already applied with different payload");
         }
 
-        var latestCheckpoint = await store.GetLatestCheckpointForUpdateAsync(updateId, cancellationToken);
+        var latestCheckpoint = updateLog.GetLatestCheckpointForUpdate(updateId);
         var expectedSequence = (latestCheckpoint?.Sequence ?? 0) + 1;
         if (sequenceNumber != expectedSequence)
         {
@@ -256,13 +255,12 @@ internal sealed class ConformantJournalingUpdateProvider(
 
         try
         {
-            var stored = await store.SaveCheckpointWithSequenceAsync(
+            var stored = updateLog.SaveCheckpointWithSequence(
                 updateId,
                 applyResult.StoredSequenceNumber,
                 applyResult.DeploymentJson,
                 requestVersion,
                 requestSignature,
-                cancellationToken,
                 schemaVersion);
             return stored
                 ? new UpdateMutationResult(UpdateMutationStatus.Ok)
@@ -271,7 +269,7 @@ internal sealed class ConformantJournalingUpdateProvider(
         catch (SqliteException ex) when (IsUniqueConstraintViolation(ex))
         {
             // Retry-safe idempotency for concurrent duplicate writes.
-            var checkpoint = await store.GetCheckpointBySequenceForUpdateAsync(updateId, sequenceNumber, cancellationToken);
+            var checkpoint = updateLog.GetCheckpointBySequenceForUpdate(updateId, sequenceNumber);
             if (checkpoint is not null && IsDuplicate(checkpoint.Value, requestSignature, legacyDuplicateMatcher))
             {
                 return new UpdateMutationResult(UpdateMutationStatus.Ok);
@@ -283,40 +281,40 @@ internal sealed class ConformantJournalingUpdateProvider(
         }
     }
 
-    private async Task<BaselineDeployment> ResolveBaselineDeploymentAsync(
+    private Task<BaselineDeployment> ResolveBaselineDeploymentAsync(
         string stackId,
-        BackendStore.StoredUpdateCheckpoint? latestCheckpoint,
+        StoredUpdateCheckpoint? latestCheckpoint,
         CancellationToken cancellationToken)
     {
         if (latestCheckpoint is not null)
         {
-            return new BaselineDeployment(
+            return Task.FromResult(new BaselineDeployment(
                 latestCheckpoint.Value.Sequence,
-                latestCheckpoint.Value.DeploymentJson);
+                latestCheckpoint.Value.DeploymentJson));
         }
 
-        var latestDeployment = await store.GetLatestDeploymentEnvelopeAsync(stackId, cancellationToken);
-        return new BaselineDeployment(
+        var latestDeployment = updateQueries.GetLatestDeploymentEnvelope(stackId);
+        return Task.FromResult(new BaselineDeployment(
             LastSequence: 0,
-            DeploymentJson: latestDeployment?.DeploymentJson);
+            DeploymentJson: latestDeployment?.DeploymentJson));
     }
 
-    private async Task<int> ResolvePersistedSchemaVersionAsync(
+    private Task<int> ResolvePersistedSchemaVersionAsync(
         string updateId,
         string deploymentJson,
         CancellationToken cancellationToken)
     {
-        var updateContext = await store.GetUpdateContextAsync(updateId, cancellationToken);
+        var updateContext = updateCommands.GetUpdateContext(updateId);
         var preferredSchemaVersion = updateContext is null
             ? null
-            : (await store.GetLatestDeploymentEnvelopeAsync(updateContext.Value.StackId, cancellationToken))?.SchemaVersion;
-        return DeploymentSchemaPolicy.ResolvePersistedSchemaVersion(deploymentJson, preferredSchemaVersion);
+            : updateQueries.GetLatestDeploymentEnvelope(updateContext.Value.StackId)?.SchemaVersion;
+        return Task.FromResult(DeploymentSchemaPolicy.ResolvePersistedSchemaVersion(deploymentJson, preferredSchemaVersion));
     }
 
     private static bool IsDuplicate(
-        BackendStore.StoredUpdateCheckpoint existingCheckpoint,
+        StoredUpdateCheckpoint existingCheckpoint,
         string requestSignature,
-        Func<BackendStore.StoredUpdateCheckpoint, bool> legacyDuplicateMatcher)
+        Func<StoredUpdateCheckpoint, bool> legacyDuplicateMatcher)
     {
         if (!string.IsNullOrWhiteSpace(existingCheckpoint.RequestSignature))
         {
@@ -389,17 +387,17 @@ internal sealed class ConformantJournalingUpdateProvider(
         var entries = new List<JournalEntry>();
         foreach (var eventJson in events)
         {
-            try
+            if (!TryParseJsonDocument(eventJson, out var document))
             {
-                using var doc = JsonDocument.Parse(eventJson);
-                if (TryParseJournalEntry(doc.RootElement, out var entry))
+                continue;
+            }
+
+            using (document)
+            {
+                if (TryParseJournalEntry(document.RootElement, out var entry))
                 {
                     entries.Add(entry);
                 }
-            }
-            catch (JsonException)
-            {
-                // Ignore non-JSON events.
             }
         }
 
@@ -481,15 +479,15 @@ internal sealed class ConformantJournalingUpdateProvider(
             return new DeploymentSnapshot(Resources: [], PendingOperations: []);
         }
 
-        try
+        if (TryParseJsonDocument(deploymentJson, out var document))
         {
-            using var doc = JsonDocument.Parse(deploymentJson);
-            return ParseDeploymentSnapshot(doc.RootElement);
+            using (document)
+            {
+                return ParseDeploymentSnapshot(document.RootElement);
+            }
         }
-        catch (JsonException)
-        {
-            return new DeploymentSnapshot(Resources: [], PendingOperations: []);
-        }
+
+        return new DeploymentSnapshot(Resources: [], PendingOperations: []);
     }
 
     private static DeploymentSnapshot ParseDeploymentSnapshot(JsonElement element)
@@ -531,16 +529,12 @@ internal sealed class ConformantJournalingUpdateProvider(
             rawJsonElement.ValueKind == JsonValueKind.String)
         {
             var candidate = rawJsonElement.GetString();
-            if (!string.IsNullOrWhiteSpace(candidate))
+            if (TryParseJsonDocument(candidate, out var rawDocument))
             {
-                try
+                using (rawDocument)
                 {
-                    using var rawDocument = JsonDocument.Parse(candidate);
-                    rawJson = candidate;
+                    rawJson = candidate!;
                     sourceElement = rawDocument.RootElement.Clone();
-                }
-                catch (JsonException)
-                {
                 }
             }
         }
@@ -583,7 +577,7 @@ internal sealed class ConformantJournalingUpdateProvider(
     {
         var template = ParseJsonNode(baselineDeploymentJson) as JsonObject;
         template ??= ParseJsonNode(endpointHelpers.CreateEmptyDeploymentJson()) as JsonObject;
-        template ??= new JsonObject();
+        template ??= [];
 
         var resources = new JsonArray();
         foreach (var resource in snapshot.Resources)
@@ -726,18 +720,44 @@ internal sealed class ConformantJournalingUpdateProvider(
 
     private static JsonNode? ParseJsonNode(string? json)
     {
+        return TryParseJsonNode(json, out var node) ? node : null;
+    }
+
+    private static bool TryParseJsonDocument(string? json, out JsonDocument? document)
+    {
+        document = null;
         if (string.IsNullOrWhiteSpace(json))
         {
-            return null;
+            return false;
         }
 
         try
         {
-            return JsonNode.Parse(json);
+            document = JsonDocument.Parse(json);
+            return true;
         }
         catch (JsonException)
         {
-            return null;
+            return false;
+        }
+    }
+
+    private static bool TryParseJsonNode(string? json, out JsonNode? node)
+    {
+        node = null;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            node = JsonNode.Parse(json);
+            return node is not null;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -874,7 +894,6 @@ internal sealed class ConformantJournalingUpdateProvider(
 
     private static bool TryGetPendingOperations(JsonElement element, out JsonElement operations)
     {
-        operations = default;
         if (element.TryGetProperty("pendingOperations", out operations) &&
             operations.ValueKind == JsonValueKind.Array)
         {

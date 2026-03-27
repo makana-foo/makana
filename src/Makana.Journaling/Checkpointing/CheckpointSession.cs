@@ -4,8 +4,8 @@ public sealed class CheckpointSession
 {
     private int _lastSequenceNumber;
     private string? _currentDeploymentJson;
-    private readonly Dictionary<int, string> _requestSignatureBySequence = new();
-    private readonly Dictionary<int, string> _deploymentBySequence = new();
+    private readonly Dictionary<int, string> _requestSignatureBySequence = [];
+    private readonly Dictionary<int, string> _deploymentBySequence = [];
 
     public CheckpointSession()
     {

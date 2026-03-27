@@ -3,6 +3,7 @@ namespace Makana.StackUpdates.Models;
 public enum StackConsoleLineDeltaAction
 {
     Append,
+    InsertBefore,
     Upsert,
     Delete
 }
@@ -12,6 +13,8 @@ public enum StackSummaryLineKind
     Header,
     Resource,
     SectionHeading,
+    SectionDetail,
+    DiagnosticDetail,
     Plain
 }
 
@@ -22,7 +25,8 @@ public sealed record StackSummaryLineSemantic(
     string? Name,
     string? Status,
     string? Info,
-    string? HeadingText);
+    string? HeadingText,
+    bool ShowInfoColumn);
 
 public sealed record StackConsoleLineProjection(
     string Key,
@@ -35,4 +39,5 @@ public sealed record StackConsoleLineDelta(
     StackConsoleLineDeltaAction Action,
     long Sequence,
     string Text,
-    StackSummaryLineSemantic? SummarySemantic = null);
+    StackSummaryLineSemantic? SummarySemantic = null,
+    string? AnchorKey = null);

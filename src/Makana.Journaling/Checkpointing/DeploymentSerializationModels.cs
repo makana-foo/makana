@@ -440,7 +440,7 @@ public static class DeploymentSerializer
         {
             result[property.Name] = property.Value.ValueKind == JsonValueKind.Null
                 ? Array.Empty<string>()
-                : property.Value.EnumerateArray().Select(static item => item.GetString() ?? string.Empty).ToArray();
+                : [.. property.Value.EnumerateArray().Select(static item => item.GetString() ?? string.Empty)];
         }
 
         return result;
