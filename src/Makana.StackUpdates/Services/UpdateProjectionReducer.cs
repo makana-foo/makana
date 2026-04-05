@@ -615,10 +615,10 @@ public sealed partial class UpdateProjectionReducer
                 IsPreview,
                 Config,
                 StackOutputs,
-                Resources.OrderBy(static item => item.FirstSequence).ToArray(),
-                Diagnostics.OrderBy(static item => item.Sequence).ToArray(),
-                Stdout.OrderBy(static item => item.Sequence).ToArray(),
+                [.. Resources.OrderBy(static item => item.FirstSequence)],
+                [.. Diagnostics.OrderBy(static item => item.Sequence)],
+                [.. Stdout.OrderBy(static item => item.Sequence)],
                 Summary,
-                Activity.OrderBy(static item => item.Sequence).ToArray());
+                [.. Activity.OrderBy(static item => item.Sequence)]);
     }
 }

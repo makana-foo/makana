@@ -77,7 +77,7 @@ public static class CheckpointMigrator
                 ? null
                 : new DeploymentSnapshotDocument(
                     Manifest: checkpoint.Latest.Manifest,
-                    Resources: checkpoint.Latest.Resources.ToArray(),
+                    Resources: [.. checkpoint.Latest.Resources],
                     SecretsProviderType: checkpoint.Latest.SecretsProviderType,
                     SecretsProviderState: checkpoint.Latest.SecretsProviderState is null
                         ? null
@@ -86,7 +86,7 @@ public static class CheckpointMigrator
     public static LegacyDeploymentV2Document UpgradeDeploymentToV2(LegacyDeploymentV1Document deployment)
         => new(
             Manifest: deployment.Manifest,
-            Resources: deployment.Resources.ToArray());
+            Resources: [.. deployment.Resources]);
 
     public static LegacyResourceV2Document UpgradeResourceToV2(LegacyResourceV1Document resource)
         => new(
@@ -100,7 +100,7 @@ public static class CheckpointMigrator
             Parent: resource.Parent,
             Protect: resource.Protect,
             External: false,
-            Dependencies: resource.Dependencies.ToArray(),
+            Dependencies: [.. resource.Dependencies],
             Provider: string.Empty,
             InitErrors: resource.InitErrors?.ToArray());
 
@@ -116,7 +116,7 @@ public static class CheckpointMigrator
             Parent: resource.Parent,
             Protect: resource.Protect,
             External: resource.External,
-            Dependencies: resource.Dependencies.ToArray(),
+            Dependencies: [.. resource.Dependencies],
             Provider: resource.Provider,
             InitErrors: resource.InitErrors?.ToArray(),
             PropertyDependencies: null,

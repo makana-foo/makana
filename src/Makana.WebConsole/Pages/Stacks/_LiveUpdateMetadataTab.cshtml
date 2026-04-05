@@ -1,43 +1,50 @@
 @using Makana.WebConsole.Models
 @model Makana.WebConsole.Models.StackLivePanelViewModel
-@{
-    var overviewItems = new[]
-    {
-        new ConsoleDetailItem("Kind", Model.DisplayKindLabel),
-        new ConsoleDetailItem("Version", Model.DisplayVersion?.ToString() ?? "n/a"),
-        new ConsoleDetailItem("Message", Model.DisplayMessage ?? "n/a")
-    };
-    var summaryItems = new[]
-    {
-        new ConsoleDetailItem("Preview", Model.IsPreview ? "Yes" : "No"),
-        new ConsoleDetailItem("Resource count", Model.DisplayResourceCount?.ToString() ?? "n/a"),
-        new ConsoleDetailItem("Result", Model.StatusText)
-    };
-    var timingItems = new[]
-    {
-        new ConsoleDetailItem("Started", Model.DisplayStartedExactText),
-        new ConsoleDetailItem("Completed", Model.DisplayCompletedExactText),
-        new ConsoleDetailItem("Maybe corrupt", (Model.UpdateView?.Summary?.MaybeCorrupt == true) ? "Yes" : "No")
-    };
-}
+<div class="stack-live-metadata">
+    <dl class="console-detail-grid">
+        <div class="console-detail-grid__item">
+            <dt>Kind</dt>
+            <dd id="live-update-meta-kind">@Model.DisplayKindLabel</dd>
+        </div>
+        <div class="console-detail-grid__item">
+            <dt>Version</dt>
+            <dd id="live-update-meta-version">@(Model.DisplayVersion?.ToString() ?? "n/a")</dd>
+        </div>
+        <div class="console-detail-grid__item">
+            <dt>Message</dt>
+            <dd id="live-update-meta-message">@(Model.DisplayMessage ?? "n/a")</dd>
+        </div>
+    </dl>
+</div>
 
-@if (!string.IsNullOrWhiteSpace(Model.DisplayKind) || Model.DisplayVersion is not null || !string.IsNullOrWhiteSpace(Model.DisplayMessage))
-{
-    <div class="stack-live-metadata">
-        <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
-                   render-mode="Static"
-                   param-Items="overviewItems" />
-    </div>
-}
+<div class="stack-live-metadata">
+    <dl class="console-detail-grid">
+        <div class="console-detail-grid__item">
+            <dt>Preview</dt>
+            <dd id="live-update-meta-preview">@(Model.IsPreview ? "Yes" : "No")</dd>
+        </div>
+        <div class="console-detail-grid__item">
+            <dt>Resource count</dt>
+            <dd id="live-update-meta-resource-count">@(Model.DisplayResourceCount?.ToString() ?? "n/a")</dd>
+        </div>
+        <div class="console-detail-grid__item">
+            <dt>Result</dt>
+            <dd id="live-update-meta-result">@Model.StatusText</dd>
+        </div>
+    </dl>
 
-@if (Model.DisplayStartTime is not null || Model.DisplayEndTime is not null || Model.DisplayResourceCount is not null || Model.UpdateView?.Summary is not null)
-{
-    <div class="stack-live-metadata">
-        <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
-                   render-mode="Static"
-                   param-Items="summaryItems" />
-        <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
-                   render-mode="Static"
-                   param-Items="timingItems" />
-    </div>
-}
+    <dl class="console-detail-grid">
+        <div class="console-detail-grid__item">
+            <dt>Started</dt>
+            <dd id="live-update-meta-started">@Model.DisplayStartedExactText</dd>
+        </div>
+        <div class="console-detail-grid__item">
+            <dt>Completed</dt>
+            <dd id="live-update-meta-completed">@Model.DisplayCompletedExactText</dd>
+        </div>
+        <div class="console-detail-grid__item">
+            <dt>Maybe corrupt</dt>
+            <dd id="live-update-meta-maybe-corrupt">@((Model.UpdateView?.Summary?.MaybeCorrupt == true) ? "Yes" : "No")</dd>
+        </div>
+    </dl>
+</div>

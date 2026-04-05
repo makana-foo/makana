@@ -116,7 +116,7 @@ public sealed record StackLivePanelViewModel(
         UpdateHistoryEntries.FirstOrDefault();
 
     public IReadOnlyList<StackUpdateHistoryEntryViewData> RemainingUpdateHistoryEntries =>
-        UpdateHistoryEntries.Skip(1).ToArray();
+        [.. UpdateHistoryEntries.Skip(1)];
 
     public bool ShowUpdateHistory =>
         string.IsNullOrWhiteSpace(SelectedRunType) &&
@@ -167,7 +167,7 @@ public sealed record StackLivePanelViewModel(
             return [];
         }
 
-        return entries.Select(MapChangeFeedEntry).ToArray();
+        return [.. entries.Select(MapChangeFeedEntry)];
     }
 
     private static StackChangeFeedEntryViewModel MapChangeFeedEntry(UpdateViewChangeEntry entry)

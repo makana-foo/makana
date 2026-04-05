@@ -1,0 +1,43 @@
+@model Makana.WebConsole.Models.StackLivePanelViewModel
+@{
+    var refreshUrl = Url.Page(
+        "/Stacks/Details",
+        "StackMetadataCard",
+        new
+        {
+            owner = Model.Org,
+            project = Model.Project,
+            stack = Model.Stack,
+            runType = Model.SelectedRunType,
+            updateRef = Model.SelectedRouteReference
+        });
+}
+
+<article id="stack-page-metadata-card"
+         class="card"
+         hx-get="@refreshUrl"
+         hx-trigger="every 5s"
+         hx-swap="outerHTML"
+         hx-target="this">
+    <header>
+        <h3>Stack metadata</h3>
+    </header>
+
+    @if (Model.StackMetadata is null)
+    {
+        <p>Stack metadata is unavailable.</p>
+    }
+    else
+    {
+        <dl class="console-detail-grid">
+            <div class="console-detail-grid__item">
+                <dt>Version</dt>
+                <dd>@Model.StackMetadata.Version</dd>
+            </div>
+            <div class="console-detail-grid__item">
+                <dt>Active update</dt>
+                <dd>@(string.IsNullOrWhiteSpace(Model.StackMetadata.ActiveUpdate) ? "None" : Model.StackMetadata.ActiveUpdate)</dd>
+            </div>
+        </dl>
+    }
+</article>

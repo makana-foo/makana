@@ -156,7 +156,7 @@ public static class StateMoveCompatibility
 
         var stdout = BuildStdout(
             warnings,
-            movedResources.Where(resource => !IsRootStack(resource) && !IsProvider(resource)).Select(static resource => resource.Urn).ToArray(),
+            [.. movedResources.Where(resource => !IsRootStack(resource) && !IsProvider(resource)).Select(static resource => resource.Urn)],
             dependencyWarnings,
             sourceStackReference,
             destinationStackReference);

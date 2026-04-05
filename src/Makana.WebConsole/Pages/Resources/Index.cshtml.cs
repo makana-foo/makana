@@ -23,10 +23,9 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
         }
 
         Owner = context.SelectedOwner;
-        Stacks = context.SelectedOwnerStacks
+        Stacks = [.. context.SelectedOwnerStacks
             .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
-            .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
-            .ToArray();
+            .ThenBy(stack => stack.StackName, StringComparer.Ordinal)];
         TotalResources = Stacks.Sum(stack => stack.ResourceCount ?? 0);
 
         return Page();

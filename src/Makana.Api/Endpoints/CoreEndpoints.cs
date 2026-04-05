@@ -473,6 +473,13 @@ internal static class CoreEndpoints
             displayName,
             OidcClaimHelpers.ResolveEmail(validatedSubjectToken.Principal),
             OidcClaimHelpers.ResolveEmailVerified(validatedSubjectToken.Principal));
+        var verifiedEmail = OidcClaimHelpers.ResolveEmailVerified(validatedSubjectToken.Principal)
+            ? OidcClaimHelpers.ResolveEmail(validatedSubjectToken.Principal)
+            : null;
+        if (!string.IsNullOrWhiteSpace(verifiedEmail))
+        {
+            identityRepository.ClaimOrganizationMembershipsForVerifiedEmail(linkedIdentity.UserId, verifiedEmail!);
+        }
         var user = identityRepository.GetUserById(linkedIdentity.UserId);
         if (user is null)
         {
@@ -530,7 +537,7 @@ internal static class CoreEndpoints
                 namespaceIds.Add(org.Id);
             }
 
-            return Task.FromResult<IReadOnlyCollection<string>>(namespaceIds.ToArray());
+            return Task.FromResult<IReadOnlyCollection<string>>([.. namespaceIds]);
         }
 
         if (string.Equals(userLogin, organizationFilter, StringComparison.OrdinalIgnoreCase))

@@ -1,12 +1,15 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Data.Sqlite;
 
 namespace Makana.Api.Storage;
 
 public sealed class MakanaApiStorageRuntime
 {
-    private readonly StorageAvailabilityState _availability;
-    private readonly bool _hasLocalDatabaseState;
+    private readonly IConfiguration _configuration;
+    private readonly IHostEnvironment _environment;
+    private readonly object _statusLock = new();
+    private StorageRuntimeStatus _status;
 
     public MakanaApiStorageRuntime(
         IConfiguration configuration,
@@ -14,11 +17,12 @@ public sealed class MakanaApiStorageRuntime
         IEnumerable<LitestreamDatabaseRegistration> databaseRegistrations,
         IEnumerable<LitestreamDatabaseGroupRegistration> databaseGroupRegistrations)
     {
+        _configuration = configuration;
+        _environment = environment;
         ControlDatabasePath = ResolveControlDatabasePath(configuration, environment, databaseRegistrations, databaseGroupRegistrations);
         DataRootPath = ResolveDataRootPath(ControlDatabasePath, databaseGroupRegistrations);
         ControlDatabaseConnectionString = $"Data Source={ControlDatabasePath}";
-        _hasLocalDatabaseState = DetectLocalDatabaseState(DataRootPath, ControlDatabasePath);
-        _availability = StorageAvailabilityState.FromConfiguration(configuration, environment, _hasLocalDatabaseState);
+        _status = ComputeStatus();
     }
 
     public string ControlDatabasePath { get; }
@@ -27,39 +31,70 @@ public sealed class MakanaApiStorageRuntime
 
     public string ControlDatabaseConnectionString { get; }
 
-    public bool CanServeDatabaseTraffic => _availability is { RestoreState: StorageRestoreState.Ready, LeaseState: StorageLeaseState.Owner };
+    public bool CanServeDatabaseTraffic => GetStatus().Availability is { RestoreState: StorageRestoreState.Ready, LeaseState: StorageLeaseState.Owner };
 
     public bool CanRunMaintenance => CanServeDatabaseTraffic;
 
-    public bool HasLocalDatabaseState => _hasLocalDatabaseState;
+    public bool HasLocalDatabaseState => GetStatus().LocalDatabaseState is LocalDatabaseState.Complete;
 
-    public string UnavailableMessage => _availability.ToMessage();
+    public string UnavailableMessage => GetStatus().Availability.ToMessage();
 
     public void InitializeDatabase(SqliteControlDatabase database)
     {
-        if (!_availability.CanInitializeDatabase)
+        if (!GetStatus().Availability.CanInitializeDatabase)
         {
             return;
         }
 
         Directory.CreateDirectory(DataRootPath);
         database.Initialize();
+        RefreshStatus();
     }
 
     public HealthCheckResult ToHealthCheckResult()
     {
+        var status = GetStatus();
         if (CanServeDatabaseTraffic)
         {
             return HealthCheckResult.Healthy();
         }
 
-        return _availability switch
+        return status.Availability switch
         {
-            { RestoreState: StorageRestoreState.Restoring } => HealthCheckResult.Degraded(UnavailableMessage),
-            { LeaseState: StorageLeaseState.Standby } => HealthCheckResult.Degraded(UnavailableMessage),
-            { LeaseState: StorageLeaseState.Reseeding } => HealthCheckResult.Degraded(UnavailableMessage),
-            _ => HealthCheckResult.Unhealthy(UnavailableMessage)
+            { RestoreState: StorageRestoreState.Restoring } => HealthCheckResult.Degraded(status.Availability.ToMessage()),
+            { LeaseState: StorageLeaseState.Standby } => HealthCheckResult.Degraded(status.Availability.ToMessage()),
+            { LeaseState: StorageLeaseState.Reseeding } => HealthCheckResult.Degraded(status.Availability.ToMessage()),
+            _ => HealthCheckResult.Unhealthy(status.Availability.ToMessage())
         };
+    }
+
+    private StorageRuntimeStatus GetStatus()
+    {
+        lock (_statusLock)
+        {
+            if (_status.LocalDatabaseState is LocalDatabaseState.Complete)
+            {
+                return _status;
+            }
+
+            _status = ComputeStatus();
+            return _status;
+        }
+    }
+
+    private void RefreshStatus()
+    {
+        lock (_statusLock)
+        {
+            _status = ComputeStatus();
+        }
+    }
+
+    private StorageRuntimeStatus ComputeStatus()
+    {
+        var localDatabaseState = DetectLocalDatabaseState(ControlDatabasePath);
+        var availability = StorageAvailabilityState.FromConfiguration(_configuration, _environment, localDatabaseState);
+        return new StorageRuntimeStatus(localDatabaseState, availability);
     }
 
     private static string ResolveControlDatabasePath(
@@ -112,10 +147,99 @@ public sealed class MakanaApiStorageRuntime
             ?? throw new InvalidOperationException("Unable to resolve the Makana API data root.");
     }
 
-    private static bool DetectLocalDatabaseState(string dataRootPath, string controlDatabasePath)
+    private static LocalDatabaseState DetectLocalDatabaseState(string controlDatabasePath)
     {
-        _ = dataRootPath;
-        return File.Exists(controlDatabasePath);
+        if (!File.Exists(controlDatabasePath))
+        {
+            return LocalDatabaseState.None;
+        }
+
+        var controlDatabaseInfo = new FileInfo(controlDatabasePath);
+        if (controlDatabaseInfo.Length == 0)
+        {
+            return LocalDatabaseState.None;
+        }
+
+        try
+        {
+            var database = new SqliteControlDatabase($"Data Source={controlDatabasePath}");
+            var stackShardDatabase = new StackShardDatabase(database);
+
+            using var connection = new SqliteConnection($"Data Source={controlDatabasePath};Mode=ReadOnly");
+            connection.Open();
+
+            if (!ControlDatabaseHasStacksTable(connection))
+            {
+                return LocalDatabaseState.Partial;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT shard_path
+                FROM stacks
+                WHERE shard_path IS NOT NULL
+                  AND shard_state = @activeState;
+                """;
+            command.Parameters.AddWithValue("@activeState", "active");
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!IsReadableShardDatabase(stackShardDatabase.ResolveCatalogShardPath(reader.GetString(0))))
+                {
+                    return LocalDatabaseState.Partial;
+                }
+            }
+
+            return LocalDatabaseState.Complete;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SqliteException)
+        {
+            return controlDatabaseInfo.Length == 0
+                ? LocalDatabaseState.None
+                : LocalDatabaseState.Partial;
+        }
+    }
+
+    private static bool ControlDatabaseHasStacksTable(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = 'stacks'
+            LIMIT 1;
+            """;
+        return command.ExecuteScalar() is not null;
+    }
+
+    private static bool IsReadableShardDatabase(string shardPath)
+    {
+        if (!File.Exists(shardPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={shardPath};Mode=ReadOnly");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('updates', 'deployments')
+                GROUP BY 1
+                HAVING COUNT(*) = 2;
+                """;
+            return command.ExecuteScalar() is not null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SqliteException)
+        {
+            return false;
+        }
     }
 
     private readonly record struct StorageAvailabilityState(StorageRestoreState RestoreState, StorageLeaseState LeaseState)
@@ -127,7 +251,7 @@ public sealed class MakanaApiStorageRuntime
         public static StorageAvailabilityState FromConfiguration(
             IConfiguration configuration,
             IHostEnvironment environment,
-            bool hasLocalDatabaseState)
+            LocalDatabaseState localDatabaseState)
         {
             var replicaState = ParseReplicaState(configuration["Makana:Storage:ReplicaState"]);
             var restoreState = ParseRestoreState(configuration["Makana:Storage:RestoreState"]);
@@ -135,7 +259,7 @@ public sealed class MakanaApiStorageRuntime
 
             if (restoreState is null)
             {
-                restoreState = ResolveRestoreState(environment, hasLocalDatabaseState, replicaState);
+                restoreState = ResolveRestoreState(environment, localDatabaseState, replicaState);
             }
 
             return new StorageAvailabilityState(restoreState.Value, leaseState);
@@ -160,12 +284,19 @@ public sealed class MakanaApiStorageRuntime
 
         private static StorageRestoreState ResolveRestoreState(
             IHostEnvironment environment,
-            bool hasLocalDatabaseState,
+            LocalDatabaseState localDatabaseState,
             StorageReplicaState replicaState)
         {
-            if (hasLocalDatabaseState)
+            if (localDatabaseState is LocalDatabaseState.Complete)
             {
                 return StorageRestoreState.Ready;
+            }
+
+            if (localDatabaseState is LocalDatabaseState.Partial)
+            {
+                return replicaState is StorageReplicaState.Absent
+                    ? StorageRestoreState.Unavailable
+                    : StorageRestoreState.Restoring;
             }
 
             return replicaState switch
@@ -217,6 +348,15 @@ public sealed class MakanaApiStorageRuntime
         Restoring,
         Unavailable
     }
+
+    private enum LocalDatabaseState
+    {
+        None,
+        Partial,
+        Complete
+    }
+
+    private readonly record struct StorageRuntimeStatus(LocalDatabaseState LocalDatabaseState, StorageAvailabilityState Availability);
 
     private enum StorageLeaseState
     {

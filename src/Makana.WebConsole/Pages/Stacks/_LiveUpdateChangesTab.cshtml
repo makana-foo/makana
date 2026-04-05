@@ -2,43 +2,43 @@
 @using Makana.WebConsole.Models
 @using Makana.WebConsole.Components
 
-@if (!Model.HasChanges)
-{
-    <p>No update events recorded yet.</p>
-}
-else
-{
-    <ot-tabs class="stack-update-tabs" data-stack-tab-state="@($"{Model.Org}:{Model.Project}:{Model.Stack}:{Model.UpdateId ?? "none"}:changes")">
-        <div role="tablist" class="stack-tablist stack-tablist--end">
-            <button type="button" role="tab" aria-selected="true">Summary</button>
-            <button type="button" role="tab">Diff</button>
-            <button type="button" role="tab">Diagnostic</button>
-        </div>
+<ot-tabs class="stack-update-tabs" data-stack-tab-state="@($"{Model.Org}:{Model.Project}:{Model.Stack}:{Model.UpdateId ?? "none"}:changes")">
+    <div role="tablist" class="stack-tablist stack-tablist--end">
+        <button type="button" role="tab" aria-selected="true">Summary</button>
+        <button type="button" role="tab">Diff</button>
+        <button type="button" role="tab">Diagnostic</button>
+    </div>
 
-        <div role="tabpanel">
-            <div id="live-update-summary-view">
-                <component type="typeof(StackLiveConsoleView)"
-                           render-mode="Static"
-                           param-ViewName="@("summary")"
-                           param-ContainerId="@("live-update-summary-lines")"
-                           param-Lines="Model.SummaryConsoleLines" />
-            </div>
+    <div role="tabpanel">
+        <div id="live-update-summary-view">
+            <component type="typeof(StackLiveConsoleView)"
+                       render-mode="Static"
+                       param-ViewName="@("summary")"
+                       param-ContainerId="@("live-update-summary-lines")"
+                       param-Lines="Model.SummaryConsoleLines" />
+            <p id="live-update-summary-empty" class="stack-live-empty" hidden="@(Model.SummaryConsoleLines.Count > 0)">No summary output yet.</p>
         </div>
+    </div>
 
-        <div role="tabpanel">
+    <div role="tabpanel">
+        <div id="live-update-diff-view">
             <component type="typeof(StackLiveConsoleView)"
                        render-mode="Static"
                        param-ViewName="@("diff")"
                        param-ContainerId="@("live-update-diff-lines")"
                        param-Lines="Model.DiffConsoleLines" />
+            <p id="live-update-diff-empty" class="stack-live-empty" hidden="@(Model.DiffConsoleLines.Count > 0)">No diff output yet.</p>
         </div>
+    </div>
 
-        <div role="tabpanel">
+    <div role="tabpanel">
+        <div id="live-update-diagnostic-view">
             <component type="typeof(StackLiveConsoleView)"
                        render-mode="Static"
                        param-ViewName="@("diagnostic")"
                        param-ContainerId="@("live-update-diagnostic-lines")"
                        param-Lines="Model.DiagnosticConsoleLines" />
+            <p id="live-update-diagnostic-empty" class="stack-live-empty" hidden="@(Model.DiagnosticConsoleLines.Count > 0)">No diagnostic output yet.</p>
         </div>
-    </ot-tabs>
-}
+    </div>
+</ot-tabs>

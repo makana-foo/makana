@@ -34,10 +34,9 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
             .Count();
         ResourceCount = Context.SelectedOwnerStacks.Sum(stack => stack.ResourceCount ?? 0);
 
-        RecentStacks = Context.SelectedOwnerStacks
+        RecentStacks = [.. Context.SelectedOwnerStacks
             .OrderByDescending(stack => stack.LastUpdate ?? 0)
-            .Take(8)
-            .ToArray();
+            .Take(8)];
 
         return Page();
     }

@@ -16,8 +16,7 @@ internal static class StackEndpoints
         StackCatalogCommandRepository stackCommands,
         UpdateCommandRepository updateCommands,
         UpdateQueryRepository updateQueries,
-        UpdateLogRepository updateLog,
-        byte[] secretKey)
+        UpdateLogRepository updateLog)
     {
         static IResult InvalidStackNameResponse()
             => Results.BadRequest(new ErrorResponse(400, StackRouteConventions.InvalidStackNameMessage, null));
@@ -337,11 +336,19 @@ internal static class StackEndpoints
         }).RequireAuthorization("ApiToken");
 
         stackGroup.MapPost("/encrypt",
-            (EncryptValueRequest request, EndpointHelpers endpointHelpers) => Results.Ok(new EncryptValueResponse(endpointHelpers.Encrypt(secretKey, request.Plaintext))))
+            (EncryptValueRequest request, EndpointHelpers endpointHelpers, IdentityRepository identityRepository) =>
+            {
+                var secretKey = identityRepository.GetOrCreateSecretKey();
+                return Results.Ok(new EncryptValueResponse(endpointHelpers.Encrypt(secretKey, request.Plaintext)));
+            })
             .RequireAuthorization("ApiToken");
 
         stackGroup.MapPost("/decrypt",
-            (DecryptValueRequest request, EndpointHelpers endpointHelpers) => Results.Ok(new DecryptValueResponse(endpointHelpers.Decrypt(secretKey, request.Ciphertext))))
+            (DecryptValueRequest request, EndpointHelpers endpointHelpers, IdentityRepository identityRepository) =>
+            {
+                var secretKey = identityRepository.GetOrCreateSecretKey();
+                return Results.Ok(new DecryptValueResponse(endpointHelpers.Decrypt(secretKey, request.Ciphertext)));
+            })
             .RequireAuthorization("ApiToken");
 
         stackGroup.MapPost("/decrypt/log-decryption",
@@ -353,15 +360,17 @@ internal static class StackEndpoints
             .RequireAuthorization("ApiToken");
 
         stackGroup.MapPost("/batch-encrypt",
-            (BatchEncryptRequest request, EndpointHelpers endpointHelpers) =>
+            (BatchEncryptRequest request, EndpointHelpers endpointHelpers, IdentityRepository identityRepository) =>
             {
+                var secretKey = identityRepository.GetOrCreateSecretKey();
                 var cipher = request.Plaintexts.Select(p => endpointHelpers.Encrypt(secretKey, p)).ToArray();
                 return Results.Ok(new BatchEncryptResponse(cipher));
             }).RequireAuthorization("ApiToken");
 
         stackGroup.MapPost("/batch-decrypt",
-            (JsonElement request, EndpointHelpers endpointHelpers) =>
+            (JsonElement request, EndpointHelpers endpointHelpers, IdentityRepository identityRepository) =>
             {
+                var secretKey = identityRepository.GetOrCreateSecretKey();
                 if (!request.TryGetProperty("ciphertexts", out var ciphertextsElement) ||
                     ciphertextsElement.ValueKind != JsonValueKind.Array)
                 {

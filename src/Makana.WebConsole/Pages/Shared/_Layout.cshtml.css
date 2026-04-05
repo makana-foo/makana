@@ -1,24 +1,29 @@
-.owner-menu {
-    padding: 0.5rem;
-    list-style: none;
+[data-sidebar-layout] {
+    position: relative;
+    inset: 0;
 }
 
-.owner-menu-group + .owner-menu-group,
-.owner-menu-footer {
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--border);
+[data-topnav] > a[aria-label="Makana homepage"] {
+    text-decoration: none;
 }
 
-.owner-menu-heading {
-    padding: 0 0.75rem 0.35rem;
-    color: var(--muted-foreground);
-    font-size: var(--text-7);
-    font-weight: var(--font-semibold);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.owner-menu-footer form {
+[data-sidebar-expand-toggle] {
+    display: none;
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 100%;
     margin: 0;
+    z-index: 6;
+}
+
+@media (min-width: 769px) {
+    [data-sidebar-layout="always"][data-sidebar-open] [data-sidebar-expand-toggle] {
+        display: inline-flex;
+    }
+}
+
+@media (max-width: 768px) {
+    [data-sidebar-layout]:not([data-sidebar-open]) [data-sidebar-expand-toggle] {
+        display: inline-flex;
+    }
 }

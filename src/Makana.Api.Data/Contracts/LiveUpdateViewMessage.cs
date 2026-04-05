@@ -5,9 +5,6 @@ namespace Makana.Api.Contracts;
 public record LiveUpdateViewChanges(
     [property: JsonPropertyName("hasEvents")] bool? HasEvents = null,
     [property: JsonPropertyName("messageCount")] int? MessageCount = null,
-    [property: JsonPropertyName("summaryText")] string? SummaryText = null,
-    [property: JsonPropertyName("diffText")] string? DiffText = null,
-    [property: JsonPropertyName("diagnosticText")] string? DiagnosticText = null,
     [property: JsonPropertyName("entries")] UpdateViewChangeEntry[]? Entries = null,
     [property: JsonPropertyName("deltaEntries")] UpdateViewChangeEntry[]? DeltaEntries = null,
     [property: JsonPropertyName("summaryLines")] UpdateViewConsoleLine[]? SummaryLines = null,
@@ -48,9 +45,6 @@ public record LiveUpdateViewMessage(
                 Changes: new LiveUpdateViewChanges(
                     HasEvents: response.Changes.HasEvents,
                     MessageCount: response.Changes.MessageCount,
-                    SummaryText: response.Changes.SummaryText,
-                    DiffText: response.Changes.DiffText,
-                    DiagnosticText: response.Changes.DiagnosticText,
                     Entries: response.Changes.Entries,
                     DeltaEntries: response.Changes.DeltaEntries,
                     SummaryLines: response.Changes.SummaryLines,

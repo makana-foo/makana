@@ -38,7 +38,57 @@ public sealed class SqliteControlDatabase(string connectionString)
             @"CREATE TABLE IF NOT EXISTS org_memberships (
                 org_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'member',
                 PRIMARY KEY (org_id, user_id)
+            );",
+            @"CREATE TABLE IF NOT EXISTS org_invitations (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                email TEXT NOT NULL,
+                role TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                claimed_at TEXT,
+                revoked_at TEXT
+            );",
+            @"CREATE TABLE IF NOT EXISTS org_sso_configs (
+                org_id TEXT PRIMARY KEY,
+                protocol TEXT NOT NULL DEFAULT 'oidc',
+                mode TEXT NOT NULL,
+                connector_id TEXT,
+                display_name TEXT,
+                scim_bearer_token TEXT,
+                oidc_issuer TEXT,
+                oidc_client_id TEXT,
+                oidc_client_secret TEXT,
+                saml_sso_url TEXT,
+                saml_ca_certificate_pem TEXT,
+                saml_username_attribute TEXT,
+                saml_email_attribute TEXT,
+                saml_groups_attribute TEXT,
+                saml_entity_issuer TEXT,
+                saml_sso_issuer TEXT,
+                saml_groups_delimiter TEXT,
+                saml_name_id_policy_format TEXT,
+                updated_at TEXT NOT NULL
+            );",
+            @"CREATE TABLE IF NOT EXISTS org_verified_domains (
+                org_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                PRIMARY KEY (org_id, domain),
+                UNIQUE(domain)
+            );",
+            @"CREATE TABLE IF NOT EXISTS org_scim_memberships (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                email TEXT NOT NULL,
+                display_name TEXT,
+                role TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                claimed_user_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(org_id, external_id)
             );",
             @"CREATE TABLE IF NOT EXISTS api_tokens (
                 token TEXT PRIMARY KEY,
@@ -149,6 +199,14 @@ public sealed class SqliteControlDatabase(string connectionString)
               ON api_tokens (revoked_at);",
             @"CREATE INDEX IF NOT EXISTS idx_linked_identities_user_id
               ON linked_identities (user_id);",
+            @"CREATE INDEX IF NOT EXISTS idx_org_invitations_org_id
+              ON org_invitations (org_id);",
+            @"CREATE INDEX IF NOT EXISTS idx_org_invitations_email
+              ON org_invitations (email);",
+            @"CREATE INDEX IF NOT EXISTS idx_org_scim_memberships_org_id
+              ON org_scim_memberships (org_id);",
+            @"CREATE INDEX IF NOT EXISTS idx_org_scim_memberships_email
+              ON org_scim_memberships (email);",
             @"CREATE INDEX IF NOT EXISTS idx_teams_org_id
               ON teams (org_id);",
             @"CREATE INDEX IF NOT EXISTS idx_team_memberships_user_id
@@ -168,6 +226,21 @@ public sealed class SqliteControlDatabase(string connectionString)
             connection.Execute(command, transaction: tx);
         }
 
+        EnsureColumnExists(connection, tx, "orgs", "display_name", "TEXT");
+        EnsureColumnExists(connection, tx, "org_memberships", "role", "TEXT NOT NULL DEFAULT 'member'");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "protocol", "TEXT NOT NULL DEFAULT 'oidc'");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "oidc_issuer", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "oidc_client_id", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "oidc_client_secret", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_sso_url", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_ca_certificate_pem", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_username_attribute", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_email_attribute", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_groups_attribute", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_entity_issuer", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_sso_issuer", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_groups_delimiter", "TEXT");
+        EnsureColumnExists(connection, tx, "org_sso_configs", "saml_name_id_policy_format", "TEXT");
         EnsureColumnExists(connection, tx, "api_tokens", "revoked_at", "TEXT");
         EnsureColumnExists(connection, tx, "api_tokens", "last_used_at", "TEXT");
         EnsureColumnExists(connection, tx, "api_tokens", "issued_via", "TEXT");

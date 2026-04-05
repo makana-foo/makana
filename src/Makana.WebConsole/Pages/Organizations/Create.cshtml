@@ -15,20 +15,20 @@
         <header>
             <h3>Organization details</h3>
             <p class="text-light">
-                The surrounding shell stays scoped to <strong>@Model.Owner</strong>, but creating a new organization is not implemented yet.
+                Create a new organization from the current owner-scoped shell. Makana will derive the owner slug server-side.
             </p>
         </header>
 
         @if (Model.CreationAttempted)
         {
             <div role="status" data-variant="info">
-                <strong>Not implemented.</strong> Makana does not provision organizations from the Web Console yet.
+                <strong>Submission attempted.</strong> Makana validated this request against the organization API.
             </div>
         }
         else
         {
             <div role="status" data-variant="info">
-                This is a stub form only. Submitting it will not call an organization-provisioning API.
+                The owner slug preview is informational. The API remains authoritative for normalization and uniqueness.
             </div>
         }
 
@@ -41,8 +41,9 @@
                        aria-describedby="organization-create-help" />
             </label>
             <p id="organization-create-help" class="text-light">
-                Choose the intended organization handle now; Makana will keep this value in the form but will not create anything yet.
+                Preview owner slug: <strong>@(string.IsNullOrWhiteSpace(Model.PreviewSlug) ? "unavailable" : Model.PreviewSlug)</strong>
             </p>
+            <div asp-validation-summary="ModelOnly" class="text-light"></div>
             <div class="hstack gap-2">
                 <button type="submit">Create organization</button>
                 <a class="button outline" asp-page="/Stacks/Index" asp-route-owner="@Model.Owner">Cancel</a>

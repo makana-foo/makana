@@ -604,6 +604,22 @@ internal static class UpdateEndpoints
             var view = await updateViewMaterializer.BuildAsync(ids.Value.StackId, updateId, afterSequence, cancellationToken);
             return view is null ? TypedResults.NotFound() : TypedResults.Ok(view);
         }).RequireAuthorization("OrgRouteAccess");
+        app.MapGet(StackRouteConventions.ApiStackRoute + "/update/{updateId}/live", async Task<Results<BadRequest<ErrorResponse>, NotFound, Ok<LiveUpdateViewMessage>>> (string org, string project, string stack, string updateId, string? continuationToken, UpdateViewMaterializer updateViewMaterializer, CancellationToken cancellationToken) =>
+        {
+            if (!TryParseContinuationToken(continuationToken, out var afterSequence))
+            {
+                return TypedResults.BadRequest(new ErrorResponse(Code: 400, Message: "invalid continuation token", RequestId: null));
+            }
+
+            var ids = stackQueries.GetStackIds(org, project, stack);
+            if (ids is null)
+            {
+                return TypedResults.NotFound();
+            }
+
+            var view = await updateViewMaterializer.BuildLiveAsync(ids.Value.StackId, updateId, afterSequence, cancellationToken);
+            return view is null ? TypedResults.NotFound() : TypedResults.Ok(LiveUpdateViewMessage.FromResponse(view));
+        }).RequireAuthorization("OrgRouteAccess");
         app.MapGet(StackRouteConventions.ApiStackRoute + "/{updateKind}/{updateId}/view", async Task<Results<BadRequest<ErrorResponse>, NotFound, Ok<UpdateViewResponse>>> (string org, string project, string stack, string updateId, string? continuationToken, UpdateViewMaterializer updateViewMaterializer, CancellationToken cancellationToken) =>
         {
             if (!TryParseContinuationToken(continuationToken, out var afterSequence))
@@ -619,6 +635,22 @@ internal static class UpdateEndpoints
 
             var view = await updateViewMaterializer.BuildAsync(ids.Value.StackId, updateId, afterSequence, cancellationToken);
             return view is null ? TypedResults.NotFound() : TypedResults.Ok(view);
+        }).RequireAuthorization("OrgRouteAccess");
+        app.MapGet(StackRouteConventions.ApiStackRoute + "/{updateKind}/{updateId}/live", async Task<Results<BadRequest<ErrorResponse>, NotFound, Ok<LiveUpdateViewMessage>>> (string org, string project, string stack, string updateId, string? continuationToken, UpdateViewMaterializer updateViewMaterializer, CancellationToken cancellationToken) =>
+        {
+            if (!TryParseContinuationToken(continuationToken, out var afterSequence))
+            {
+                return TypedResults.BadRequest(new ErrorResponse(Code: 400, Message: "invalid continuation token", RequestId: null));
+            }
+
+            var ids = stackQueries.GetStackIds(org, project, stack);
+            if (ids is null)
+            {
+                return TypedResults.NotFound();
+            }
+
+            var view = await updateViewMaterializer.BuildLiveAsync(ids.Value.StackId, updateId, afterSequence, cancellationToken);
+            return view is null ? TypedResults.NotFound() : TypedResults.Ok(LiveUpdateViewMessage.FromResponse(view));
         }).RequireAuthorization("OrgRouteAccess");
 
         app.MapPost(StackRouteConventions.ApiStackRoute + "/update/{updateId}/renew_lease", Results<Conflict<ErrorResponse>, NotFound, Ok<RenewUpdateLeaseResponse>> (string updateId, RenewUpdateLeaseRequest request, AuthenticatedApiContextAccessor authenticatedApiContextAccessor, CancellationToken cancellationToken) =>

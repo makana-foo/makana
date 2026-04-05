@@ -9,6 +9,7 @@ public sealed class WebConsoleLoginProviderCatalog
 {
     public const string AuthenticationProviderItemKey = "makana.auth.provider";
     public const string AuthenticationOwnerItemKey = "makana.auth.owner";
+    public const string AuthenticationChallengeValueItemKey = "makana.auth.challenge";
 
     private readonly IReadOnlyList<WebConsoleLoginProvider> _globalProviders;
     private readonly Dictionary<string, OrganizationProviderSelection> _organizationProviders;
@@ -90,9 +91,7 @@ public sealed class WebConsoleLoginProviderCatalog
     {
         if (options.Providers.Count > 0)
         {
-            return options.Providers
-                .Select(provider => CreateProvider(provider.Key))
-                .ToArray();
+            return [.. options.Providers.Select(provider => CreateProvider(provider.Key))];
         }
 
         return string.Equals(challengeParameterName, "connector_id", StringComparison.Ordinal)
@@ -113,10 +112,9 @@ public sealed class WebConsoleLoginProviderCatalog
     private static WebConsoleLoginProvider CreateProvider(string providerId)
     {
         var displayName = HumanizeProviderId(providerId);
-        var badge = new string(displayName
+        var badge = new string([.. displayName
             .Where(char.IsLetterOrDigit)
-            .Take(2)
-            .ToArray())
+            .Take(2)])
             .ToUpperInvariant();
 
         if (string.IsNullOrWhiteSpace(badge))

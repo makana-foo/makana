@@ -96,9 +96,30 @@
 
     function updateToggleLabels(root = document) {
         const queryRoot = root instanceof Element || root instanceof Document ? root : document;
-        const nextModeLabel = getEffectiveThemeMode() === "dark" ? "Light mode" : "Dark mode";
-        for (const label of queryRoot.querySelectorAll("[data-theme-mode-toggle-label]")) {
-            label.textContent = nextModeLabel;
+        const effectiveMode = getEffectiveThemeMode();
+        const isDarkMode = effectiveMode === "dark";
+        const action = isDarkMode ? "Switch to light mode" : "Switch to dark mode";
+        const icon = isDarkMode
+            ? "#shell-icon-theme-dark"
+            : "#shell-icon-theme-light";
+
+        for (const button of queryRoot.querySelectorAll("[data-theme-mode-toggle]")) {
+            if (!(button instanceof HTMLElement)) {
+                continue;
+            }
+
+            button.setAttribute("aria-label", action);
+            button.setAttribute("title", action);
+            button.setAttribute("data-theme-mode", effectiveMode);
+            button.dataset.tooltip = action;
+        }
+
+        for (const iconElement of queryRoot.querySelectorAll("[data-theme-mode-icon-use]")) {
+            if (!(iconElement instanceof SVGUseElement)) {
+                continue;
+            }
+
+            iconElement.setAttribute("href", icon);
         }
     }
 
@@ -157,6 +178,10 @@
     });
 
     document.addEventListener("DOMContentLoaded", () => {
+        initializeThemeControls(document);
+    });
+
+    document.addEventListener("htmx:afterSettle", () => {
         initializeThemeControls(document);
     });
 

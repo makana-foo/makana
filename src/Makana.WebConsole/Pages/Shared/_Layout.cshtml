@@ -42,137 +42,137 @@
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="htmx-config" historyCacheSize="32" />
     <title>@ViewData["Title"] - Makana Console</title>
     <script>
-        window.makanaThemeConfig = @Html.Raw(themeConfigJson);
-        (() => {
-            const config = window.makanaThemeConfig ?? {};
-            const theme = typeof config.initialTheme === "string" && config.initialTheme.length > 0
-                ? config.initialTheme
-                : (typeof config.defaultTheme === "string" && config.defaultTheme.length > 0 ? config.defaultTheme : "default");
-            const modeStorageKey = typeof config.modeStorageKey === "string" && config.modeStorageKey.length > 0
-                ? config.modeStorageKey
-                : "makana:theme-mode";
-            let mode = null;
-            try {
-                const storedMode = window.localStorage.getItem(modeStorageKey);
-                if (storedMode === "light" || storedMode === "dark") {
-                    mode = storedMode;
+            window.makanaThemeConfig = @Html.Raw(themeConfigJson);
+            (() => {
+                const config = window.makanaThemeConfig ?? {};
+                const theme = typeof config.initialTheme === "string" && config.initialTheme.length > 0
+                    ? config.initialTheme
+                    : (typeof config.defaultTheme === "string" && config.defaultTheme.length > 0 ? config.defaultTheme : "default");
+                const modeStorageKey = typeof config.modeStorageKey === "string" && config.modeStorageKey.length > 0
+                    ? config.modeStorageKey
+                    : "makana:theme-mode";
+                let mode = null;
+                try {
+                    const storedMode = window.localStorage.getItem(modeStorageKey);
+                    if (storedMode === "light" || storedMode === "dark") {
+                        mode = storedMode;
+                    }
+                } catch {
+                    mode = null;
                 }
-            } catch {
-                mode = null;
-            }
 
-            if (mode !== "light" && mode !== "dark") {
-                mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-            }
+                if (mode !== "light" && mode !== "dark") {
+                    mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+                }
 
-            const token = theme === "island" ? `island-${mode}` : mode;
-            document.documentElement.style.colorScheme = mode;
-            document.documentElement.setAttribute("data-theme-family", theme);
-            document.documentElement.setAttribute("data-theme-mode", mode);
-            document.documentElement.setAttribute("data-theme", token);
-        })();
+                const token = theme === "island" ? `island-${mode}` : mode;
+                document.documentElement.style.colorScheme = mode;
+                document.documentElement.setAttribute("data-theme-family", theme);
+                document.documentElement.setAttribute("data-theme-mode", mode);
+                document.documentElement.setAttribute("data-theme", token);
+            })();
     </script>
     <link rel="stylesheet" href="~/lib/oat/oat.min.css" asp-append-version="true" />
     <link rel="stylesheet" href="@themeStylesheetPath" id="makana-theme-stylesheet" data-theme-stylesheet />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/Makana.WebConsole.styles.css" />
 </head>
+
 <body class="@ViewData["BodyClass"]">
-@if (hideChrome)
-{
-    <main class="container">
-        <div id="console-page">
-            @RenderBody()
-        </div>
-    </main>
-}
-else
-{
-    <div data-sidebar-layout="always"
-         hx-boost="true"
-         hx-target="#console-page"
-         hx-select="#console-page"
-         hx-select-oob="#console-sidebar,#page-scripts"
-         hx-swap="outerHTML transition:true show:window:top"
-         hx-push-url="true">
-        <nav data-topnav aria-label="Console toolbar">
-            <button type="button" class="outline small" data-sidebar-toggle aria-label="Toggle sidebar">Menu</button>
-            <div class="hstack justify-between w-100">
-                <div class="vstack gap-1">
-                    <strong>@(ViewData["Title"] ?? "Makana Console")</strong>
-                    @if (!string.IsNullOrWhiteSpace(navContext.SelectedOwner))
-                    {
-                        <small class="text-light">Owner: @navContext.SelectedOwner</small>
-                    }
-                </div>
-                <div class="hstack justify-end">
-                    <button type="button"
-                            class="outline small"
-                            data-theme-mode-toggle
-                            aria-label="Switch color mode">
-                        <span data-theme-mode-toggle-label>Dark mode</span>
-                    </button>
-                    @if (User.Identity?.IsAuthenticated == true)
-                    {
-                        var displayName = navContext.User?.Name
-                            ?? navContext.User?.GitHubLogin
-                            ?? User.Identity.Name
-                            ?? "signed-in";
-                        var avatarPath = ConsoleAvatarPaths.ForUser(navContext.User);
-                        <ot-dropdown>
-                            <button type="button"
-                                    class="outline small flex items-center gap-2"
-                                    popovertarget="user-menu"
-                                    aria-label="Open account menu"
-                                    data-account-menu-trigger>
-                                @if (!string.IsNullOrWhiteSpace(avatarPath))
-                                {
-                                    <component type="typeof(ConsoleUserAvatar)"
-                                               render-mode="Static"
-                                               param-AvatarPath="avatarPath"
-                                               param-AltText="@($"Avatar for {displayName}")"
-                                               param-Size="28" />
-                                }
-                                <small class="text-light">@displayName</small>
-                                <component type="typeof(DropdownChevron)"
-                                           render-mode="Static" />
-                            </button>
-                            <menu popover id="user-menu" class="owner-menu">
-                                <a role="menuitem" href="@accountSettingsHref">Account settings</a>
-                                <div class="owner-menu-footer">
-                                    <form method="post" asp-page="/Login" asp-page-handler="SignOut" hx-boost="false">
-                                        <button type="submit" role="menuitem">Logout</button>
-                                    </form>
-                                </div>
-                            </menu>
-                        </ot-dropdown>
-                    }
-                    else
-                    {
-                        <a class="button outline small" asp-page="/Login">Login</a>
-                    }
-                </div>
-            </div>
-        </nav>
-
-        <component type="typeof(ConsoleSidebar)"
-                   render-mode="Static"
-                   param-Context="navContext"
-                   param-ActiveSection="activeSection" />
-
-        <main>
-            <div id="console-page" class="container">
+    <component type="typeof(ShellIconSprite)" render-mode="Static" />
+    @if (hideChrome)
+    {
+        <main class="container">
+            <div id="console-page">
                 @RenderBody()
             </div>
         </main>
-    </div>
-}
+    }
+    else
+    {
+        <div data-sidebar-layout="always" hx-boost="true" hx-target="#console-page" hx-select="#console-page"
+             hx-select-oob="#console-sidebar,#page-scripts" hx-swap="outerHTML transition:true show:window:top"
+             hx-push-url="true">
+            <nav data-topnav aria-label="Console toolbar">
+                <a hx-disable class="button outline large icon" asp-page="/Splash" aria-label="Makana homepage">M</a>
+                <button type="button"
+                        class="outline small icon"
+                        data-sidebar-toggle
+                        data-sidebar-expand-toggle
+                        data-tooltip-placement="right"
+                        aria-label="Expand sidebar"
+                        title="Expand sidebar">
+                    <svg aria-hidden="true" focusable="false" viewBox="0 0 28 28" width="16" height="16">
+                        <use href="#shell-icon-sidebar-expand"></use>
+                    </svg>
+                </button>
+                <div class="hstack justify-between w-100">
+                    <div class="vstack gap-1">
+                        <strong>@(ViewData["Title"] ?? "Makana Console")</strong>
+                        @if (!string.IsNullOrWhiteSpace(navContext.SelectedOwner))
+                        {
+                            <small class="text-light">Owner: @navContext.SelectedOwner</small>
+                        }
+                    </div>
+                    <div class="hstack justify-end">
+                        <button type="button" class="outline large icon" data-theme-mode-toggle data-tooltip-placement="bottom"
+                                aria-label="Switch color mode" title="Switch color mode">
+                            <svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="16" height="16">
+                                <use href="#shell-icon-theme-light" data-theme-mode-icon-use></use>
+                            </svg>
+                        </button>
+                        @if (User.Identity?.IsAuthenticated == true)
+                        {
+                            var displayName = navContext.User?.Name
+                                ?? navContext.User?.GitHubLogin
+                                ?? User.Identity.Name
+                                ?? "signed-in";
+                            var avatarPath = ConsoleAvatarPaths.ForUser(navContext.User);
+                            <ot-dropdown>
+                                <button type="button" class="outline large flex items-center gap-2" popovertarget="user-menu"
+                                        aria-label="Open account menu" data-account-menu-trigger>
+                                    @if (!string.IsNullOrWhiteSpace(avatarPath))
+                                    {
+                                        <component type="typeof(ConsoleUserAvatar)" render-mode="Static"
+                                                   param-AvatarPath="avatarPath" param-AltText="@($"Avatar for {displayName}")"
+                                                   param-Size="40" />
+                                    }
+                                    <span class="text-light">@displayName</span>
+                                    <component type="typeof(DropdownChevron)" render-mode="Static" />
+                                </button>
+                                <menu popover id="user-menu">
+                                    <a role="menuitem" href="@accountSettingsHref">Account settings</a>
+                                    <form method="post" asp-page="/Login" asp-page-handler="SignOut" hx-boost="false">
+                                        <button type="submit" role="menuitem">Logout</button>
+                                    </form>
+                                </menu>
+                            </ot-dropdown>
+                        }
+                        else
+                        {
+                            <a class="button outline large" asp-page="/Login">Login</a>
+                        }
+                    </div>
+                </div>
+            </nav>
+
+            <component type="typeof(ConsoleSidebar)" render-mode="Static" param-Context="navContext"
+                       param-ActiveSection="activeSection" />
+
+            <main>
+                <div id="console-page" class="container">
+                    @RenderBody()
+                </div>
+            </main>
+        </div>
+    }
 
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
@@ -186,4 +186,5 @@ else
         @await RenderSectionAsync("Scripts", required: false)
     </div>
 </body>
+
 </html>

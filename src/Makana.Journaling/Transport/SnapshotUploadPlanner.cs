@@ -75,7 +75,7 @@ public sealed record WireDeployment(
             }
         }
 
-        return features.OrderBy(static feature => feature, StringComparer.Ordinal).ToArray();
+        return [.. features.OrderBy(static feature => feature, StringComparer.Ordinal)];
     }
 }
 

@@ -3,31 +3,36 @@
 
 <header>
     <h2>Updates</h2>
-    <p class="stack-status-line">
-        Status:
-        <strong>@Model.StatusText</strong>
-        @if (Model.IsInProgress)
+    <p id="live-update-status-line" class="stack-status-line">
+        <span>Status:</span>
+        <strong id="live-update-status-value">@Model.StatusText</strong>
+        <span id="live-update-status-spinner">
+            @if (Model.IsInProgress)
+            {
+                <span aria-busy="true" data-spinner="small" class="stack-status-spinner" aria-label="Update in progress"></span>
+            }
+        </span>
+        <span id="live-update-run-label" hidden="@string.IsNullOrWhiteSpace(Model.DisplayRunLabel)">
+            @if (!string.IsNullOrWhiteSpace(Model.DisplayRunLabel))
+            {
+                <text> · @Model.DisplayRunLabel</text>
+            }
+        </span>
+        <span id="live-update-start-time" hidden="@(Model.DisplayStartTime is null)">
+            @if (Model.DisplayStartTime is not null)
+            {
+                <text> · <time title="@Model.DisplayStartedExactText">@Model.DisplayStartedRelativeText</time></text>
+            }
+        </span>
+    </p>
+    <p id="live-update-message" hidden="@string.IsNullOrWhiteSpace(Model.DisplayMessage)">
+        @if (!string.IsNullOrWhiteSpace(Model.DisplayMessage))
         {
-            <span aria-busy="true" data-spinner="small" class="stack-status-spinner" aria-label="Update in progress"></span>
-        }
-        @if (!string.IsNullOrWhiteSpace(Model.DisplayRunLabel))
-        {
-            <span> · @Model.DisplayRunLabel</span>
-        }
-        @if (Model.DisplayStartTime is not null)
-        {
-            <span> · <time title="@Model.DisplayStartedExactText">@Model.DisplayStartedRelativeText</time></span>
+            <strong>@Model.DisplayMessage</strong>
         }
     </p>
-    @if (!string.IsNullOrWhiteSpace(Model.DisplayMessage))
-    {
-        <p>
-            <strong>@Model.DisplayMessage</strong>
-        </p>
-    }
-    @if (Model.DisplayResourceChanges is { Count: > 0 } || Model.DisplayResourceCount is not null || Model.DisplayEndTime is not null)
-    {
-        <p>
+    <p id="live-update-summary-meta" hidden="@(Model.DisplayResourceChanges is not { Count: > 0 } && Model.DisplayResourceCount is null && Model.DisplayEndTime is null)">
+        <span id="live-update-resource-changes">
             @if (Model.DisplayResourceChanges is { Count: > 0 } resourceChanges)
             {
                 <span>Changes:</span>
@@ -36,16 +41,18 @@
                     <span><strong>@change.Key</strong> @change.Value</span>
                 }
             }
-
+        </span>
+        <span id="live-update-resource-count" hidden="@(Model.DisplayResourceCount is null)">
             @if (Model.DisplayResourceCount is { } resourceCount)
             {
-                <span> · Resources <strong>@resourceCount</strong></span>
+                <text> · Resources <strong>@resourceCount</strong></text>
             }
-
+        </span>
+        <span id="live-update-duration" hidden="@(Model.DisplayEndTime is null || Model.DisplayStartTime is null || Model.DisplayEndTime < Model.DisplayStartTime || Model.DisplayStartTime <= 0)">
             @if (Model.DisplayEndTime is { } endTime && Model.DisplayStartTime is { } startTime && endTime >= startTime && startTime > 0)
             {
-                <span> · Duration <strong>@TimeSpan.FromSeconds(endTime - startTime)</strong></span>
+                <text> · Duration <strong>@TimeSpan.FromSeconds(endTime - startTime)</strong></text>
             }
-        </p>
-    }
+        </span>
+    </p>
 </header>

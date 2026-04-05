@@ -19,17 +19,20 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
         var stacks = await apiClient.GetUserStacksAsync(cancellationToken);
 
         var personalOwner = ResolvePersonalOwner(user);
-        var ownerOptions = BuildOwnerOptions(user, stacks, personalOwner);
+        var ownerOptions = BuildOwnerOptions(user, personalOwner);
         var ownerGroups = BuildOwnerGroups(ownerOptions);
         var requestedOwner = httpContext.GetRouteValue("owner")?.ToString();
         var selectedOwner = ResolveSelectedOwner(requestedOwner, ownerOptions, personalOwner);
         var requestedOwnerIsAuthorized = string.IsNullOrWhiteSpace(requestedOwner) ||
                                          ownerOptions.Any(option => string.Equals(option.Value, requestedOwner, StringComparison.Ordinal));
-        var selectedStacks = stacks
-            .Where(stack => string.Equals(stack.OrgName, selectedOwner, StringComparison.Ordinal))
-            .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
-            .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
-            .ToArray();
+        var selectedOwnerIsAuthorized = ownerOptions.Any(option => string.Equals(option.Value, selectedOwner, StringComparison.Ordinal));
+        var selectedStacks = selectedOwnerIsAuthorized
+            ? stacks
+                .Where(stack => string.Equals(stack.OrgName, selectedOwner, StringComparison.Ordinal))
+                .OrderBy(stack => stack.ProjectName, StringComparer.Ordinal)
+                .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
+                .ToArray()
+            : [];
 
         var context = new ConsoleNavigationContext(
             user,
@@ -65,7 +68,7 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
         return "personal";
     }
 
-    private static ConsoleOwnerOption[] BuildOwnerOptions(ServiceUser? user, IReadOnlyList<StackSummary> stacks, string personalOwner)
+    private static ConsoleOwnerOption[] BuildOwnerOptions(ServiceUser? user, string personalOwner)
     {
         var organizationEntries = new List<ConsoleOwnerOption>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -86,20 +89,6 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
 
                 organizationEntries.Add(new ConsoleOwnerOption(orgName, orgName, false));
             }
-        }
-
-        foreach (var stackOrg in stacks
-                     .Select(stack => stack.OrgName)
-                     .Where(org => !string.IsNullOrWhiteSpace(org))
-                     .Distinct(StringComparer.Ordinal)
-                     .OrderBy(org => org, StringComparer.Ordinal))
-        {
-            if (string.Equals(stackOrg, personalOwner, StringComparison.OrdinalIgnoreCase) || !seen.Add(stackOrg))
-            {
-                continue;
-            }
-
-            organizationEntries.Add(new ConsoleOwnerOption(stackOrg, stackOrg, false));
         }
 
         organizationEntries.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Label, right.Label));

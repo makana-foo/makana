@@ -1,15 +1,20 @@
+using Makana.WebConsole.Configuration;
 using Makana.WebConsole.Models;
 using Makana.WebConsole.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Options;
 
 namespace Makana.WebConsole.Pages.Stacks;
 
 public sealed class DetailsModel(
     ConsoleContextService consoleContextService,
     PulumiApiClient apiClient,
+    IOptions<WebConsoleApiOptions> apiOptions,
     ILogger<DetailsModel> logger) : PageModel
 {
+    private readonly WebConsoleApiOptions _apiOptions = apiOptions.Value;
+
     [BindProperty(SupportsGet = true, Name = "owner")]
     public string Owner { get; set; } = string.Empty;
 
@@ -32,6 +37,7 @@ public sealed class DetailsModel(
     public string StackUpdateHubUrl { get; private set; } = string.Empty;
     public string StackUpdateViewUrl { get; private set; } = string.Empty;
     public bool EnableLiveRefresh =>
+        !LivePanel.ShowUpdateHistory &&
         LivePanel.IsInProgress &&
         !string.IsNullOrWhiteSpace(StackUpdateHubUrl) &&
         !string.IsNullOrWhiteSpace(StackUpdateViewUrl);
@@ -52,13 +58,10 @@ public sealed class DetailsModel(
         try
         {
             LivePanel = await BuildLivePanelAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(LivePanel.UpdateId))
+            if (!LivePanel.ShowUpdateHistory && LivePanel.IsInProgress)
             {
-                logger.LogInformation(
-                    "Live stack updates are disabled for {Owner}/{Project}/{Stack} because the Web Console no longer forwards OIDC bearer tokens into the API.",
-                    Owner,
-                    Project,
-                    Stack);
+                StackUpdateViewUrl = BuildApiUri(BuildLiveUpdateViewPath());
+                StackUpdateHubUrl = BuildApiUri("/hubs/stack-updates");
             }
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -232,6 +235,81 @@ public sealed class DetailsModel(
         {
             return value;
         }
+    }
+
+    public async Task<PartialViewResult> OnGetStackMetadataCardAsync(CancellationToken cancellationToken)
+    {
+        if (!InitializeRouteContext())
+        {
+            return Partial("_StackPageMetadataCard", StackLivePanelViewModel.Empty(string.Empty, string.Empty, string.Empty));
+        }
+
+        try
+        {
+            var livePanel = await BuildLivePanelAsync(cancellationToken);
+            return Partial("_StackPageMetadataCard", livePanel);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed refreshing stack metadata card for {Owner}/{Project}/{Stack}", Owner, Project, Stack);
+            return Partial("_StackPageMetadataCard", StackLivePanelViewModel.Empty(Owner, Project, Stack));
+        }
+    }
+
+    private string BuildLiveUpdateViewPath()
+    {
+        if (string.IsNullOrWhiteSpace(LivePanel.UpdateId))
+        {
+            return string.Empty;
+        }
+
+        var runType = LivePanel.SelectedRunType ?? "updates";
+        return $"/api/stacks/{Uri.EscapeDataString(Owner)}/{Uri.EscapeDataString(Project)}/{Uri.EscapeDataString(Stack)}/{Uri.EscapeDataString(runType)}/{Uri.EscapeDataString(LivePanel.UpdateId)}/live";
+    }
+
+    private string BuildApiUri(string path)
+    {
+        var baseUrl = ResolveBrowserApiBaseUrl();
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        return new Uri(new Uri(baseUrl, UriKind.Absolute), path).ToString();
+    }
+
+    private string ResolveBrowserApiBaseUrl()
+    {
+        if (!string.IsNullOrWhiteSpace(_apiOptions.BrowserBaseUrl))
+        {
+            return NormalizePublicUrl(_apiOptions.BrowserBaseUrl);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_apiOptions.PublicApiUrl))
+        {
+            return NormalizePublicUrl(_apiOptions.PublicApiUrl);
+        }
+
+        return string.Empty;
+    }
+
+    private static string NormalizePublicUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            return value ?? string.Empty;
+        }
+
+        if ((uri.Scheme == Uri.UriSchemeHttps && uri.Port == 443) ||
+            (uri.Scheme == Uri.UriSchemeHttp && uri.Port == 80))
+        {
+            return uri.GetLeftPart(UriPartial.Authority);
+        }
+
+        return uri.PathAndQuery == "/" && string.IsNullOrEmpty(uri.Fragment)
+            ? uri.GetLeftPart(UriPartial.Authority)
+            : uri.GetComponents(UriComponents.AbsoluteUri, UriFormat.UriEscaped);
     }
 
     private sealed record ResolvedUpdateReference(

@@ -1,4 +1,5 @@
 using Htmx;
+using Makana.Authentication;
 using Makana.Api.Configuration;
 using Makana.Api.Endpoints;
 using Makana.Api.Realtime;
@@ -69,10 +70,54 @@ internal static class MakanaApiServiceCollectionExtensions
             })
             .ValidateOnStart();
 
+        services.AddMakanaOidcAuthority(
+            MakanaOidcDefaults.DefaultAuthorityName,
+            options =>
+            {
+                options.Authority = configuration["OIDC_AUTHORITY"] ?? string.Empty;
+                options.MetadataAddress = configuration["OIDC_METADATA_ADDRESS"] ?? string.Empty;
+                options.BackchannelBaseUrl = configuration["OIDC_BACKCHANNEL_BASE_URL"] ?? string.Empty;
+                options.RequireHttpsMetadata = ResolveRequireHttpsMetadata(
+                    configuration["OIDC_METADATA_ADDRESS"],
+                    configuration["OIDC_AUTHORITY"]);
+            });
+
+        services.AddMakanaOidcTokenValidation(
+            MakanaOidcDefaults.DefaultTokenValidationName,
+            options =>
+            {
+                options.AuthorityName = MakanaOidcDefaults.DefaultAuthorityName;
+                options.NameClaimType = PulumiAuthenticationDefaults.LoginClaim;
+
+                var audience = configuration["OIDC_SUBJECT_TOKEN_AUDIENCE"]
+                    ?? configuration["OIDC_CLIENT_ID"];
+                if (!string.IsNullOrWhiteSpace(audience))
+                {
+                    options.ValidAudiences.Add(audience);
+                }
+
+                var authority = configuration["OIDC_AUTHORITY"];
+                if (!string.IsNullOrWhiteSpace(authority))
+                {
+                    options.ValidIssuers.Add(authority.Trim().TrimEnd('/'));
+                }
+            });
+
+        services.AddMakanaDexConnectorProvisioning(options =>
+        {
+            options.GrpcAddress = configuration["Dex:GrpcAddress"] ?? string.Empty;
+        });
+
         services.AddSingleton(static sp => sp.GetRequiredService<IOptions<EphemeralStateCleanupPolicy>>().Value);
         services.AddSingleton(static sp => sp.GetRequiredService<IOptions<OidcSubjectTokenValidationOptions>>().Value);
 
         return services;
+
+        static bool ResolveRequireHttpsMetadata(string? metadataAddress, string? authority)
+        {
+            var candidate = string.IsNullOrWhiteSpace(metadataAddress) ? authority : metadataAddress;
+            return !candidate?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ?? true;
+        }
     }
 
     private static IServiceCollection AddMakanaApiStorageServices(this IServiceCollection services)
@@ -112,7 +157,6 @@ internal static class MakanaApiServiceCollectionExtensions
         services.AddSingleton<IUpdateCheckpointJournalingProvider, ConformantJournalingUpdateProvider>();
         services.AddSingleton<EphemeralStateJanitor>();
         services.AddSingleton<IMakanaApiMaintenanceRunner>(static sp => sp.GetRequiredService<EphemeralStateJanitor>());
-        services.AddHttpClient(nameof(OidcSubjectTokenValidator));
         services.AddSingleton<OidcSubjectTokenValidator>();
         services.AddHostedService<EphemeralStateJanitorHostedService>();
 
@@ -178,6 +222,11 @@ internal static class MakanaApiServiceCollectionExtensions
                 policy.RequireAuthenticatedUser();
                 policy.AddRequirements(new OrgMemberRequirement());
             })
+            .AddPolicy("OrgAdminRouteAccess", policy =>
+            {
+                policy.RequireAuthenticatedUser();
+                policy.AddRequirements(new OrgAdminRequirement());
+            })
             .AddPolicy("StackUpdateHubAccess", policy =>
             {
                 policy.RequireAuthenticatedUser();
@@ -187,6 +236,7 @@ internal static class MakanaApiServiceCollectionExtensions
         services.AddSingleton<IAuthorizationHandler, ApiTokenAuthorizationHandler>();
         services.AddSingleton<IAuthorizationHandler, UpdateTokenForRouteAuthorizationHandler>();
         services.AddSingleton<IAuthorizationHandler, OrgMemberAuthorizationHandler>();
+        services.AddSingleton<IAuthorizationHandler, OrgAdminAuthorizationHandler>();
         services.AddSingleton<IAuthorizationHandler, StackUpdateHubAuthorizationHandler>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, MakanaAuthorizationMiddlewareResultHandler>();
 
@@ -228,6 +278,7 @@ internal static class MakanaApiServiceCollectionExtensions
         options.TypeInfoResolverChain.Add(CoreEndpointsJsonContext.Default);
         options.TypeInfoResolverChain.Add(StackEndpointsJsonContext.Default);
         options.TypeInfoResolverChain.Add(UpdateEndpointsJsonContext.Default);
+        options.TypeInfoResolverChain.Add(OrganizationEndpointsJsonContext.Default);
         options.TypeInfoResolverChain.Add(DeploymentEndpointsJsonContext.Default);
         options.TypeInfoResolverChain.Add(RegistryEndpointsJsonContext.Default);
         options.TypeInfoResolverChain.Add(ConsoleEndpointsJsonContext.Default);
@@ -242,10 +293,9 @@ internal static class MakanaApiServiceCollectionExtensions
             return [];
         }
 
-        return origins
+        return [.. origins
             .Where(static origin => !string.IsNullOrWhiteSpace(origin))
             .Select(static origin => origin!.Trim().TrimEnd('/'))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 }

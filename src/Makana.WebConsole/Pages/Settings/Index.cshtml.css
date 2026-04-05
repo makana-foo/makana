@@ -3,6 +3,18 @@
     gap: 1.5rem;
 }
 
+.settings-form-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.settings-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
 .settings-page [data-theme-feedback][data-state="error"] {
     color: var(--danger);
 }

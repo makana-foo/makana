@@ -56,7 +56,7 @@ public static class DeploymentSchemaFeatures
             }
         }
 
-        return features.OrderBy(static feature => feature, StringComparer.Ordinal).ToArray();
+        return [.. features.OrderBy(static feature => feature, StringComparer.Ordinal)];
     }
 
     public static IReadOnlyList<string> DetectCheckpointFeatures(IReadOnlyList<CheckpointResource> resources)
@@ -90,7 +90,7 @@ public static class DeploymentSchemaFeatures
             }
         }
 
-        return features.OrderBy(static feature => feature, StringComparer.Ordinal).ToArray();
+        return [.. features.OrderBy(static feature => feature, StringComparer.Ordinal)];
     }
 
     public static int GetRequiredVersion(IReadOnlyList<string> features)
@@ -110,18 +110,16 @@ public static class DeploymentSchemaFeatures
     }
 
     public static IReadOnlyList<string> FilterFeaturesForVersion(int version, IReadOnlyList<string> features)
-        => features
+        => [.. features
             .Where(feature => MinimumVersionByFeature.TryGetValue(feature, out var minimumVersion) && minimumVersion <= version)
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(static feature => feature, StringComparer.Ordinal)
-            .ToArray();
+            .OrderBy(static feature => feature, StringComparer.Ordinal)];
 
     public static IReadOnlyList<string> GetUnsupportedFeatures(IReadOnlyList<string> features)
-        => features
+        => [.. features
             .Where(static feature => !MinimumVersionByFeature.ContainsKey(feature))
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(static feature => feature, StringComparer.Ordinal)
-            .ToArray();
+            .OrderBy(static feature => feature, StringComparer.Ordinal)];
 }
 
 public interface IDeploymentSchemaCodec
@@ -177,7 +175,7 @@ public sealed class DeploymentSchemaV4Codec : IDeploymentSchemaCodec
             throw new UnsupportedDeploymentFeaturesException(unsupported);
         }
 
-        return new UntypedDeploymentDocument(Version, features.ToArray(), deploymentJson);
+        return new UntypedDeploymentDocument(Version, [.. features], deploymentJson);
     }
 
     public void ValidateEnvelope(UntypedDeploymentDocument deployment)
@@ -226,7 +224,7 @@ public sealed class CheckpointSchemaV4Codec : ICheckpointSchemaCodec
             throw new UnsupportedCheckpointFeaturesException(unsupported);
         }
 
-        return new VersionedCheckpointDocument(Version, features.ToArray(), latest);
+        return new VersionedCheckpointDocument(Version, [.. features], latest);
     }
 
     public void ValidateEnvelope(int version, IReadOnlyList<string> features)

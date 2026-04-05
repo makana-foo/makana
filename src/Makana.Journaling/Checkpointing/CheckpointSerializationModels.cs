@@ -124,7 +124,7 @@ public static class CheckpointSerializer
         var latest = snapshot with
         {
             Stack = stackName,
-            Resources = snapshot.Resources.Select(CloneResource).ToArray(),
+            Resources = [.. snapshot.Resources.Select(CloneResource)],
             SecretsProviderState = snapshot.SecretsProviderState is null
                 ? null
                 : new Dictionary<string, CheckpointPropertyValue>(snapshot.SecretsProviderState, StringComparer.Ordinal),
@@ -314,10 +314,9 @@ public static class CheckpointSerializer
             return null;
         }
 
-        return propertyElement.EnumerateArray()
+        return [.. propertyElement.EnumerateArray()
             .Where(static item => item.ValueKind == JsonValueKind.String)
-            .Select(static item => item.GetString() ?? string.Empty)
-            .ToArray();
+            .Select(static item => item.GetString() ?? string.Empty)];
     }
 
     private static string RequireString(JsonElement element, string propertyName)

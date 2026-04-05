@@ -19,6 +19,7 @@
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Makana.Authentication/Makana.Authentication.csproj" />
     <ProjectReference Include="../CommunityToolkit.Aspire.Litestream/CommunityToolkit.Aspire.Litestream.csproj" />
     <ProjectReference Include="../Makana.ServiceDefaults/Makana.ServiceDefaults.csproj" />
     <ProjectReference Include="../Makana.Api.Data/Makana.Api.Data.csproj" />

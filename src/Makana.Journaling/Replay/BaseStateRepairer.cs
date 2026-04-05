@@ -39,7 +39,7 @@ public static class BaseStateRepairer
             {
                 updated = updated with
                 {
-                    Dependencies = updated.Dependencies!.Where(referenceable.Contains).ToArray(),
+                    Dependencies = [.. updated.Dependencies!.Where(referenceable.Contains)],
                 };
             }
 
@@ -50,7 +50,7 @@ public static class BaseStateRepairer
                     PropertyDependencies = updated.PropertyDependencies!
                         .Select(static entry => new KeyValuePair<string, IReadOnlyList<string>>(
                             entry.Key,
-                            entry.Value.ToArray()))
+                            [.. entry.Value]))
                         .Where(entry => entry.Value.Count > 0)
                         .ToDictionary(
                             static entry => entry.Key,

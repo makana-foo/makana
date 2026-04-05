@@ -14,7 +14,7 @@ public static partial class StackConsoleSemanticRenderer
         {
             return new StackConsoleRenderedDocument(
                 viewKind,
-                lines.Select(line => RenderLine(viewKind, line)).ToArray());
+                [.. lines.Select(line => RenderLine(viewKind, line))]);
         }
 
         var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal);
@@ -30,14 +30,13 @@ public static partial class StackConsoleSemanticRenderer
     public static IReadOnlyList<StackConsoleRenderedDelta> RenderLineDeltas(
         StackConsoleViewKind viewKind,
         IReadOnlyList<StackConsoleLineDelta> deltas)
-        => deltas.Select(delta => new StackConsoleRenderedDelta(
+        => [.. deltas.Select(delta => new StackConsoleRenderedDelta(
                 delta.Key,
                 GetActionName(delta.Action),
                 delta.AnchorKey,
                 delta.Action == StackConsoleLineDeltaAction.Delete
                     ? null
-                    : RenderLine(viewKind, new StackConsoleLineProjection(delta.Key, delta.Sequence, delta.Text, delta.SummarySemantic))))
-            .ToArray();
+                    : RenderLine(viewKind, new StackConsoleLineProjection(delta.Key, delta.Sequence, delta.Text, delta.SummarySemantic))))];
 
     public static string Flatten(StackConsoleRenderedDocument document)
         => string.Join('\n', document.Lines.Select(line => string.Concat(line.Segments.Select(segment => segment.Text))));

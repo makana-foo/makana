@@ -17,6 +17,15 @@
             </p>
         </header>
 
+        @if (!string.IsNullOrWhiteSpace(owner) && Model.OrganizationLogin is not null)
+        {
+            <div role="status">
+                Continuing with
+                <strong>@(Model.OrganizationLogin.DisplayName ?? owner)</strong>
+                organization sign-in.
+            </div>
+        }
+
         <form method="post" asp-page-handler="Authenticate" hx-boost="false" class="auth-provider-form">
             <input type="hidden" name="returnUrl" value="@returnUrl" />
             @if (!string.IsNullOrWhiteSpace(owner))

@@ -91,7 +91,6 @@ public sealed class UpdateLogRepository(
         string requestSignature,
         int schemaVersion = DeploymentSchemaVersions.Current)
     {
-        var normalizedDeploymentJson = DeploymentSnapshotNormalizer.NormalizeForPersistence(deploymentJson);
         var updateContext = updateCommands.GetUpdatePersistenceContext(updateId);
         if (updateContext is null)
         {
@@ -128,7 +127,7 @@ public sealed class UpdateLogRepository(
                 sequence,
                 version = deploymentVersion,
                 schemaVersion,
-                deployment = normalizedDeploymentJson,
+                deployment = deploymentJson,
                 signature = requestSignature,
                 created = DateTimeOffset.UtcNow.ToString("O")
             },
@@ -150,7 +149,7 @@ public sealed class UpdateLogRepository(
                 stackId = updateContext.Value.StackId,
                 version = deploymentVersion,
                 schemaVersion,
-                deployment = normalizedDeploymentJson,
+                deployment = deploymentJson,
                 created = DateTimeOffset.UtcNow.ToString("O")
             },
             tx);

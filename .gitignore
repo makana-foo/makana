@@ -144,6 +144,9 @@ _TeamCity*
 *.coverage
 *.coveragexml
 
+# VS Code LSP
+*.lscache
+
 # NCrunch
 _NCrunch_*
 .*crunch*.local.xml
@@ -351,6 +354,9 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+
+# pnpm
+.pnpm-store
 
 # 
 info/untracked/

@@ -6,8 +6,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "dotnetRunMessages": true,
-      "applicationUrl": "https://api-makana.dev.localhost:55507;http://api-makana.dev.localhost:55508"
+      "dotnetRunMessages": true
     },
     "Testing": {
       "commandName": "Project",
@@ -15,8 +14,7 @@
         "ASPNETCORE_ENVIRONMENT": "Testing",
         "DOTNET_ENVIRONMENT": "Testing"
       },
-      "dotnetRunMessages": true,
-      "applicationUrl": "https://api-makana.dev.localhost:55507;http://api-makana.dev.localhost:55508"
+      "dotnetRunMessages": true
     },
     "NonProd": {
       "commandName": "Project",
@@ -24,7 +22,7 @@
         "ASPNETCORE_ENVIRONMENT": "NonProd",
         "DOTNET_ENVIRONMENT": "NonProd"
       },
-      "applicationUrl": "https://api.makana.foo;http://api.makana.foo"
+      "applicationUrl": "https://api.makana.foo"
     },
     "Container (Dockerfile)": {
       "commandName": "Docker",

@@ -1,4 +1,5 @@
 using Htmx;
+using Makana.Authentication;
 using Makana.Compatibility;
 using Makana.WebConsole.Configuration;
 using Makana.WebConsole.Models;
@@ -34,6 +35,7 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
         services.AddTransient<PulumiApiAuthHeaderHandler>();
         services.AddScoped<WebConsoleApiTokenAccessor>();
         services.AddScoped<ConsoleContextService>();
+        services.AddScoped<OrganizationSsoReauthenticationService>();
         services.AddSingleton<UserAvatarService>();
 
         services.Configure<RouteOptions>(configuration.GetSection(nameof(RouteOptions)));
@@ -62,7 +64,6 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
         services.AddOptions<WebConsoleApiOptions>()
             .Configure<IConfiguration>(static (options, configuration) =>
             {
-                options.ServerBaseUrl = configuration["API_URL"];
                 options.BrowserBaseUrl = configuration["API_HTTPS"];
                 options.ApiToken = configuration["MAKANA_WEBCONSOLE_API_TOKEN"];
                 options.PublicApiUrl = configuration["Makana:ApiPublicUrl"];
@@ -75,7 +76,25 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
             .Bind(configuration.GetSection(WebConsoleAuthenticationOptions.SectionName))
             .ValidateOnStart();
 
+        services.AddMakanaOidcAuthority(
+            MakanaOidcDefaults.DefaultAuthorityName,
+            options =>
+            {
+                options.Authority = configuration["OIDC_AUTHORITY"] ?? string.Empty;
+                options.MetadataAddress = configuration["OIDC_METADATA_ADDRESS"] ?? string.Empty;
+                options.BackchannelBaseUrl = configuration["OIDC_BACKCHANNEL_BASE_URL"] ?? string.Empty;
+                options.RequireHttpsMetadata = ResolveRequireHttpsMetadata(
+                    configuration["OIDC_METADATA_ADDRESS"],
+                    configuration["OIDC_AUTHORITY"]);
+            });
+
         return services;
+
+        static bool ResolveRequireHttpsMetadata(string? metadataAddress, string? authority)
+        {
+            var candidate = string.IsNullOrWhiteSpace(metadataAddress) ? authority : metadataAddress;
+            return !candidate?.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ?? true;
+        }
     }
 
     private static IServiceCollection AddMakanaWebConsoleClients(this IServiceCollection services)
@@ -90,22 +109,10 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
 
     private static void ConfigurePulumiHttpClient(IServiceProvider services, HttpClient httpClient)
     {
-        var options = services.GetRequiredService<IOptions<WebConsoleApiOptions>>().Value;
-
-        httpClient.BaseAddress = ResolveApiBaseAddress(options);
+        _ = services.GetRequiredService<IOptions<WebConsoleApiOptions>>().Value;
+        httpClient.BaseAddress = new Uri("http://api", UriKind.Absolute);
         httpClient.DefaultRequestHeaders.Accept.Clear();
         httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue(PulumiHeaders.Accept));
-
-        static Uri ResolveApiBaseAddress(WebConsoleApiOptions options)
-        {
-            var serverBaseUrl = options.ServerBaseUrl;
-            if (!string.IsNullOrWhiteSpace(serverBaseUrl))
-            {
-                return new Uri(serverBaseUrl, UriKind.Absolute);
-            }
-
-            return new Uri("https+http://api", UriKind.Absolute);
-        }
     }
 
     private static IServiceCollection AddMakanaWebConsoleAuthentication(this IServiceCollection services, IConfiguration configuration)
@@ -117,9 +124,8 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                 options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
             })
             .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
-            .AddOpenIdConnect(options =>
+            .AddMakanaOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, MakanaOidcDefaults.DefaultAuthorityName, options =>
             {
-                options.Authority = configuration["OIDC_AUTHORITY"];
                 options.ClientId = configuration["OIDC_CLIENT_ID"];
                 var clientSecret = configuration["OIDC_CLIENT_SECRET"];
                 if (!string.IsNullOrWhiteSpace(clientSecret))
@@ -127,18 +133,16 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                     options.ClientSecret = clientSecret;
                 }
 
-                options.MetadataAddress = configuration["OIDC_METADATA_ADDRESS"];
-
-                options.MetadataAddress = string.IsNullOrWhiteSpace(options.MetadataAddress)
-                    ? $"{options.Authority}/.well-known/openid-configuration"
-                    : options.MetadataAddress;
                 options.ResponseType = OpenIdConnectResponseType.Code;
                 options.UsePkce = true;
+                options.SignedOutCallbackPath = "/signout-callback-oidc";
+                options.SignedOutRedirectUri = ConsoleRoutePaths.Splash();
                 //options.MapInboundClaims = false;
                 options.SaveTokens = true;
                 //options.GetClaimsFromUserInfoEndpoint = false;
                 options.Scope.Add("openid");
                 options.Scope.Add("profile");
+                options.Scope.Add("offline_access");
                 //options.ClaimActions.Clear();
                 options.ClaimActions.MapUniqueJsonKey("preferred_username", "preferred_username");
                 options.TokenValidationParameters = new TokenValidationParameters
@@ -150,16 +154,21 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                     OnRedirectToIdentityProvider = context =>
                     {
                         var loginProviders = context.HttpContext.RequestServices.GetRequiredService<WebConsoleLoginProviderCatalog>();
+                        var challengeValue = context.Properties?.Items.TryGetValue(WebConsoleLoginProviderCatalog.AuthenticationChallengeValueItemKey, out var challengeItem) == true
+                            ? challengeItem
+                            : null;
                         var owner = context.Properties?.Items.TryGetValue(WebConsoleLoginProviderCatalog.AuthenticationOwnerItemKey, out var ownerItem) == true
                             ? ownerItem
                             : null;
                         var providerId = context.Properties?.Items.TryGetValue(WebConsoleLoginProviderCatalog.AuthenticationProviderItemKey, out var providerItem) == true
                             ? providerItem
                             : null;
-                        var selectedProvider = loginProviders.ResolveProvider(providerId, owner);
+                        var selectedProvider = string.IsNullOrWhiteSpace(challengeValue)
+                            ? loginProviders.ResolveProvider(providerId, owner)
+                            : null;
                         context.ProtocolMessage.SetParameter(
                             loginProviders.ChallengeParameterName,
-                            selectedProvider.ChallengeValue);
+                            challengeValue ?? selectedProvider!.ChallengeValue);
 
                         return Task.CompletedTask;
                     },
@@ -184,6 +193,9 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                             storedTokens.Add(new AuthenticationToken { Name = "expires_at", Value = expiresAt });
                         }
 
+                        // Keep the Web Console cookie lean: Dex still receives and persists the
+                        // refresh token for its own offline session/logout handling, but Makana
+                        // only needs the access/id tokens in the local auth ticket.
                         context.Properties?.StoreTokens(storedTokens);
                         return Task.CompletedTask;
                     }

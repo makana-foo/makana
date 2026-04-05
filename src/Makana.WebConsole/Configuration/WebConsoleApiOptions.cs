@@ -2,8 +2,6 @@ namespace Makana.WebConsole.Configuration;
 
 public sealed class WebConsoleApiOptions
 {
-    public string? ServerBaseUrl { get; set; }
-
     public string? BrowserBaseUrl { get; set; }
 
     public string? ApiToken { get; set; }

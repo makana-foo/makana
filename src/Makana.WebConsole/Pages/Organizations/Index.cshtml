@@ -10,6 +10,34 @@
 
 <partial name="_ConsolePageHeader" model="header" />
 
+<section class="grid gap-4">
+    <article class="card">
+        <header>
+            <h2>Overview</h2>
+        </header>
+        <p><strong>@Model.VisibleMemberCount</strong> visible organization members</p>
+        <p>
+            SSO:
+            @if (Model.SsoConfiguration is null)
+            {
+                <span>not configured or not visible from this account</span>
+            }
+            else
+            {
+                <span>
+                    @Model.SsoConfiguration.Mode
+                    @(string.Equals(Model.SsoConfiguration.Protocol, "saml", StringComparison.OrdinalIgnoreCase) ? "SAML SSO" : "OIDC SSO")
+                    via
+                    @(Model.SsoConfiguration.DisplayName ?? "managed identity provider")
+                </span>
+            }
+        </p>
+        <p>
+            <a asp-page="/Settings/Index" asp-route-owner="@Model.Owner">Open organization settings</a>
+        </p>
+    </article>
+</section>
+
 <section>
     <h2>Projects</h2>
     @if (Model.Projects.Count == 0)

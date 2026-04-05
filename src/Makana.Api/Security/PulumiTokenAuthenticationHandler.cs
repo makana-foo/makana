@@ -107,13 +107,25 @@ internal static class PulumiAuthorizationTokenReader
     {
         if (TryParseAuthorizationValue(request.Headers.Authorization.ToString(), out kind, out token))
         {
+            NormalizeHubTokenKind(request, ref kind);
             return true;
         }
 
-        if (request.Path.StartsWithSegments(StackUpdateHubPath) &&
-            TryParseAuthorizationValue(request.Query["access_token"].ToString(), out kind, out token))
+        if (request.Path.StartsWithSegments(StackUpdateHubPath))
         {
-            return true;
+            var accessToken = request.Query["access_token"].ToString();
+            if (TryParseAuthorizationValue(accessToken, out kind, out token))
+            {
+                NormalizeHubTokenKind(request, ref kind);
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                kind = "token";
+                token = accessToken;
+                return true;
+            }
         }
 
         kind = string.Empty;
@@ -140,5 +152,14 @@ internal static class PulumiAuthorizationTokenReader
         kind = parts[0];
         token = parts[1];
         return true;
+    }
+
+    private static void NormalizeHubTokenKind(HttpRequest request, ref string kind)
+    {
+        if (request.Path.StartsWithSegments(StackUpdateHubPath) &&
+            string.Equals(kind, "Bearer", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = "token";
+        }
     }
 }

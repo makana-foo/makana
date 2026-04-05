@@ -8,7 +8,7 @@
         Model.IsPersonalSettings ? "Account settings" : "Organization settings",
         Model.IsPersonalSettings
             ? "Manage your personal account details and console theme."
-            : $"Review organization settings for {Model.Owner}.");
+            : $"Manage organization access, tokens, and SSO for {Model.Owner}.");
     var identityItems = Model.Context.User is null
         ? []
         : new[]
@@ -22,6 +22,13 @@
 
 <section class="settings-page">
     <partial name="_ConsolePageHeader" model="pageHeader" />
+
+    @if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+    {
+        <div role="status" data-variant="@(string.Equals(Model.StatusKind, "success", StringComparison.Ordinal) ? "success" : "info")">
+            <strong>@Model.StatusMessage</strong>
+        </div>
+    }
 
     <article class="card">
         <header>
@@ -80,5 +87,319 @@
                 </p>
             }
         </article>
+    }
+    else
+    {
+        <article class="card">
+            <header>
+                <h3>Members</h3>
+                <p class="text-light">Organization membership is the base visibility boundary for projects, stacks, outputs, and tokens.</p>
+            </header>
+
+            @if (Model.Members.Count == 0)
+            {
+                <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No organization members are currently visible.")' />
+            }
+            else
+            {
+                <div class="table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th scope="col">Member</th>
+                                <th scope="col">Email</th>
+                                <th scope="col">Role</th>
+                                <th scope="col">Kind</th>
+                                @if (Model.CanAdministerOrganization)
+                                {
+                                    <th scope="col">Actions</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var member in Model.Members)
+                        {
+                            <tr>
+                                <th scope="row">@member.DisplayName <span class="text-light">(@member.Login)</span></th>
+                                <td>@(member.Email ?? "not provided")</td>
+                                <td>@member.Role</td>
+                                <td>@member.MembershipKind</td>
+                                @if (Model.CanAdministerOrganization)
+                                {
+                                    <td class="settings-actions">
+                                        <form method="post" asp-page-handler="UpdateMemberRole">
+                                            <input type="hidden" name="userId" value="@member.UserId" />
+                                            <input type="hidden" name="role" value="@(string.Equals(member.Role, "admin", StringComparison.OrdinalIgnoreCase) ? "member" : "admin")" />
+                                            <button type="submit" class="outline small">
+                                                @(string.Equals(member.Role, "admin", StringComparison.OrdinalIgnoreCase) ? "Make member" : "Make admin")
+                                            </button>
+                                        </form>
+                                        <form method="post" asp-page-handler="RemoveMember">
+                                            <input type="hidden" name="userId" value="@member.UserId" />
+                                            <button type="submit" class="outline small">Remove</button>
+                                        </form>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </article>
+
+        @if (!Model.CanAdministerOrganization)
+        {
+            <article class="card">
+                <header>
+                    <h3>Administration</h3>
+                </header>
+                <div role="status">
+                    <strong>Admin actions are unavailable.</strong> This account can view organization membership but is not an organization admin.
+                </div>
+            </article>
+        }
+        else
+        {
+            <article class="card">
+                <header>
+                    <h3>Invitations</h3>
+                    <p class="text-light">Invite members by verified email. They will claim the membership after brokered sign-in.</p>
+                </header>
+
+                <form method="post" asp-page-handler="Invite" class="settings-form-grid">
+                    <label data-field>
+                        Email
+                        <input asp-for="InviteEmail" type="email" autocomplete="email" />
+                    </label>
+                    <label data-field>
+                        Role
+                        <select asp-for="InviteRole">
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </label>
+                    <button type="submit">Send invite</button>
+                </form>
+
+                @if (Model.Invites.Count == 0)
+                {
+                    <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No pending organization invites.")' />
+                }
+                else
+                {
+                    <div class="table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Email</th>
+                                    <th scope="col">Role</th>
+                                    <th scope="col">Created</th>
+                                    <th scope="col">State</th>
+                                    <th scope="col">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (var invite in Model.Invites)
+                            {
+                                <tr>
+                                    <th scope="row">@invite.Email</th>
+                                    <td>@invite.Role</td>
+                                    <td>@invite.CreatedAt</td>
+                                    <td>
+                                        @(invite.Revoked
+                                            ? "revoked"
+                                            : invite.Claimed
+                                                ? "claimed"
+                                                : "pending")
+                                    </td>
+                                    <td>
+                                        @if (!invite.Revoked && !invite.Claimed)
+                                        {
+                                            <form method="post" asp-page-handler="RevokeInvite">
+                                                <input type="hidden" name="inviteId" value="@invite.Id" />
+                                                <button type="submit" class="outline small">Revoke</button>
+                                            </form>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </article>
+
+            <article class="card">
+                <header>
+                    <h3>Organization Tokens</h3>
+                    <p class="text-light">Create admin-managed organization PATs. These tokens are scoped to the selected organization.</p>
+                </header>
+
+                <form method="post" asp-page-handler="CreateToken" class="settings-form-grid">
+                    <label data-field>
+                        Name
+                        <input asp-for="TokenName" autocomplete="off" />
+                    </label>
+                    <label data-field>
+                        Description
+                        <input asp-for="TokenDescription" autocomplete="off" />
+                    </label>
+                    <label data-field>
+                        Expires in days
+                        <input asp-for="TokenExpiresInDays" type="number" min="1" step="1" />
+                    </label>
+                    <button type="submit">Create token</button>
+                </form>
+
+                @if (Model.CreatedToken is not null)
+                {
+                    <label data-field>
+                        New token
+                        <textarea rows="4" readonly>@Model.CreatedToken.Token</textarea>
+                    </label>
+                }
+
+                @if (Model.Tokens.Count == 0)
+                {
+                    <partial name="_ConsoleEmptyState" model='new ConsoleEmptyStateViewModel("No organization tokens have been created.")' />
+                }
+                else
+                {
+                    <div class="table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Description</th>
+                                    <th scope="col">Issued</th>
+                                    <th scope="col">Expires</th>
+                                    <th scope="col">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (var token in Model.Tokens)
+                            {
+                                <tr>
+                                    <th scope="row">@token.Name</th>
+                                    <td>@(token.Description ?? "none")</td>
+                                    <td>@token.IssuedAt</td>
+                                    <td>@(token.ExpiresAt ?? "never")</td>
+                                    <td>
+                                        @if (!token.Revoked)
+                                        {
+                                            <form method="post" asp-page-handler="RevokeToken">
+                                                <input type="hidden" name="tokenId" value="@token.TokenId" />
+                                                <button type="submit" class="outline small">Revoke</button>
+                                            </form>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </article>
+
+            <article class="card">
+                <header>
+                    <h3>Organization SSO</h3>
+                    <p class="text-light">Choose the enterprise SSO protocol for this organization. Makana will provision the brokered federation in shared authentication services for you.</p>
+                </header>
+
+                <form method="post" asp-page-handler="SaveSso" class="settings-form-grid">
+                    <label data-field>
+                        SSO type
+                        <select asp-for="SsoProtocol">
+                            <option value="oidc">OAuth / OIDC SSO</option>
+                            <option value="saml">SAML SSO</option>
+                        </select>
+                    </label>
+                    <label data-field>
+                        Mode
+                        <select asp-for="SsoMode">
+                            <option value="optional">Optional</option>
+                            <option value="required">Required</option>
+                            <option value="exclusive">Exclusive</option>
+                        </select>
+                    </label>
+                    <label data-field>
+                        Identity provider label
+                        <input asp-for="SsoDisplayName" autocomplete="organization-title" />
+                    </label>
+                    @if (string.Equals(Model.SsoProtocol, "oidc", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <label data-field>
+                            OIDC issuer URL
+                            <input asp-for="SsoOidcIssuer" autocomplete="url" />
+                        </label>
+                        <label data-field>
+                            OIDC client ID
+                            <input asp-for="SsoOidcClientId" autocomplete="off" />
+                        </label>
+                        <label data-field>
+                            OIDC client secret
+                            <input asp-for="SsoOidcClientSecret" type="password" autocomplete="off" />
+                        </label>
+                    }
+                    else
+                    {
+                        <label data-field>
+                            SAML SSO URL
+                            <input asp-for="SsoSamlSsoUrl" autocomplete="url" />
+                        </label>
+                        <label data-field>
+                            SAML CA certificate PEM
+                            <textarea asp-for="SsoSamlCaCertificatePem" rows="6"></textarea>
+                        </label>
+                        <label data-field>
+                            Username attribute
+                            <input asp-for="SsoSamlUsernameAttribute" autocomplete="off" />
+                        </label>
+                        <label data-field>
+                            Email attribute
+                            <input asp-for="SsoSamlEmailAttribute" autocomplete="off" />
+                        </label>
+                        <label data-field>
+                            Groups attribute
+                            <input asp-for="SsoSamlGroupsAttribute" autocomplete="off" />
+                        </label>
+                    }
+                    <label data-field>
+                        Verified domains
+                        <textarea asp-for="SsoDomains" rows="3"></textarea>
+                    </label>
+                    <label data-field>
+                        SCIM bearer token
+                        <input asp-for="SsoScimBearerToken" autocomplete="off" />
+                    </label>
+                    <button type="submit">Save SSO settings</button>
+                </form>
+
+                @if (Model.HasOrganizationSso)
+                {
+                    <p class="text-light">
+                        Protocol:
+                        @(string.Equals(Model.SsoConfiguration!.Protocol, "saml", StringComparison.OrdinalIgnoreCase) ? "SAML SSO" : "OAuth / OIDC SSO")
+                    </p>
+                    <p class="text-light">
+                        Provisioned identity provider:
+                        @(Model.SsoConfiguration.DisplayName ?? "configured")
+                    </p>
+                    <p class="text-light">
+                        Stored domains:
+                        @string.Join(", ", Model.SsoConfiguration!.Domains)
+                    </p>
+                    <p class="text-light">
+                        SCIM token stored:
+                        @(Model.SsoConfiguration!.HasScimBearerToken ? "yes" : "no")
+                    </p>
+                    <form method="post" asp-page-handler="DeleteSso">
+                        <button type="submit" class="outline">Remove SSO settings</button>
+                    </form>
+                }
+            </article>
+        }
     }
 </section>

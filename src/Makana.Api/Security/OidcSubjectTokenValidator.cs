@@ -1,9 +1,5 @@
 using System.Security.Claims;
-using Makana.Api.Configuration;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Makana.Authentication;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Makana.Api.Security;
@@ -14,77 +10,29 @@ internal sealed record ValidatedOidcSubjectToken(
     string Subject,
     DateTimeOffset ExpiresAt);
 
-internal sealed class OidcSubjectTokenValidator : IDisposable
+internal sealed class OidcSubjectTokenValidator(
+    IOidcTokenValidationService tokenValidationService,
+    ILogger<OidcSubjectTokenValidator> logger)
 {
-    private readonly ConfigurationManager<OpenIdConnectConfiguration> _configurationManager;
-    private readonly JsonWebTokenHandler _tokenHandler = new();
-    private readonly OidcSubjectTokenValidationOptions _options;
-    private readonly ILogger<OidcSubjectTokenValidator> _logger;
-
-    public OidcSubjectTokenValidator(
-        IHttpClientFactory httpClientFactory,
-        IOptions<OidcSubjectTokenValidationOptions> options,
-        ILogger<OidcSubjectTokenValidator> logger)
-    {
-        _options = options.Value;
-        _logger = logger;
-
-        var retriever = new HttpDocumentRetriever(httpClientFactory.CreateClient(nameof(OidcSubjectTokenValidator)))
-        {
-            RequireHttps = _options.MetadataAddress.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-        };
-
-        _configurationManager = new ConfigurationManager<OpenIdConnectConfiguration>(
-            _options.MetadataAddress,
-            new OpenIdConnectConfigurationRetriever(),
-            retriever);
-    }
-
     public async Task<ValidatedOidcSubjectToken?> ValidateAsync(string subjectToken, CancellationToken cancellationToken)
     {
-        OpenIdConnectConfiguration configuration;
-        try
-        {
-            configuration = await _configurationManager.GetConfigurationAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to load OIDC metadata for subject-token validation.");
-            return null;
-        }
-
-        var validationParameters = new TokenValidationParameters
-        {
-            RequireSignedTokens = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKeys = configuration.SigningKeys,
-            ValidateIssuer = true,
-            ValidIssuers =
-            [
-                configuration.Issuer,
-                _options.Authority
-            ],
-            ValidateAudience = true,
-            ValidAudience = _options.SubjectTokenAudience,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(_options.ClockSkewSeconds),
-            NameClaimType = PulumiAuthenticationDefaults.LoginClaim
-        };
-
         TokenValidationResult validationResult;
         try
         {
-            validationResult = await _tokenHandler.ValidateTokenAsync(subjectToken, validationParameters);
+            validationResult = await tokenValidationService.ValidateTokenAsync(
+                MakanaOidcDefaults.DefaultTokenValidationName,
+                subjectToken,
+                cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Subject-token validation threw unexpectedly.");
+            logger.LogWarning(ex, "Subject-token validation threw unexpectedly.");
             return null;
         }
 
         if (!validationResult.IsValid || validationResult.ClaimsIdentity is null)
         {
-            _logger.LogWarning(
+            logger.LogWarning(
                 validationResult.Exception,
                 "Subject-token validation failed with {FailureType}.",
                 validationResult.Exception?.GetType().Name ?? "unknown-error");
@@ -96,7 +44,7 @@ internal sealed class OidcSubjectTokenValidator : IDisposable
         var subject = principal.FindFirstValue("sub");
         if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
         {
-            _logger.LogWarning("Validated subject token did not include both iss and sub claims.");
+            logger.LogWarning("Validated subject token did not include both iss and sub claims.");
             return null;
         }
 
@@ -105,10 +53,5 @@ internal sealed class OidcSubjectTokenValidator : IDisposable
             : DateTimeOffset.UtcNow;
 
         return new ValidatedOidcSubjectToken(principal, issuer, subject, expiresAt);
-    }
-
-    public void Dispose()
-    {
-        _configurationManager.RequestRefresh();
     }
 }

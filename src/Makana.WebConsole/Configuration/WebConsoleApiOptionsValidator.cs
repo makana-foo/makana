@@ -8,31 +8,17 @@ internal sealed class WebConsoleApiOptionsValidator : IValidateOptions<WebConsol
     {
         List<string> failures = [];
 
-        ValidateOptionalAbsoluteUri(options.ServerBaseUrl, "API_URL", failures);
-        ValidateOptionalHttpOrHttpsUri(options.BrowserBaseUrl, "API_HTTPS", failures);
-        ValidateOptionalHttpOrHttpsUri(options.PublicApiUrl, "Makana:ApiPublicUrl", failures);
-        ValidateOptionalHttpOrHttpsUri(options.PublicWebConsoleUrl, "Makana:WebConsolePublicUrl", failures);
-        ValidateOptionalHttpOrHttpsUri(options.PublicWebConsoleLoginUrl, "Makana:WebConsoleLoginUrl", failures);
+        ValidateOptionalHttpsUri(options.BrowserBaseUrl, "API_HTTPS", failures);
+        ValidateOptionalHttpsUri(options.PublicApiUrl, "Makana:ApiPublicUrl", failures);
+        ValidateOptionalHttpsUri(options.PublicWebConsoleUrl, "Makana:WebConsolePublicUrl", failures);
+        ValidateOptionalHttpsUri(options.PublicWebConsoleLoginUrl, "Makana:WebConsoleLoginUrl", failures);
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
     }
 
-    private static void ValidateOptionalAbsoluteUri(string? value, string key, List<string> failures)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return;
-        }
-
-        if (!Uri.TryCreate(value, UriKind.Absolute, out _))
-        {
-            failures.Add($"{key} must be an absolute URI.");
-        }
-    }
-
-    private static void ValidateOptionalHttpOrHttpsUri(string? value, string key, List<string> failures)
+    private static void ValidateOptionalHttpsUri(string? value, string key, List<string> failures)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -40,9 +26,9 @@ internal sealed class WebConsoleApiOptionsValidator : IValidateOptions<WebConsol
         }
 
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            uri.Scheme != Uri.UriSchemeHttps)
         {
-            failures.Add($"{key} must be an absolute http or https URI.");
+            failures.Add($"{key} must be an absolute https URI.");
         }
     }
 }

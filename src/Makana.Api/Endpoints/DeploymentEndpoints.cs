@@ -9,8 +9,7 @@ internal static class DeploymentEndpoints
     public static IEndpointRouteBuilder MapDeploymentEndpoints(
         this IEndpointRouteBuilder app,
         StackCatalogQueryRepository stackQueries,
-        DeploymentRunRepository deploymentRuns,
-        byte[] secretKey)
+        DeploymentRunRepository deploymentRuns)
     {
         var deploymentGroup = app.MapGroup(StackRouteConventions.ApiStackRoute + "/deployments")
             .RequireAuthorization("OrgRouteAccess");
@@ -56,8 +55,9 @@ internal static class DeploymentEndpoints
             return Results.Ok();
         }).RequireAuthorization("ApiToken");
 
-        deploymentGroup.MapPost("/settings/encrypt", (JsonElement request, EndpointHelpers endpointHelpers) =>
+        deploymentGroup.MapPost("/settings/encrypt", (JsonElement request, EndpointHelpers endpointHelpers, IdentityRepository identityRepository) =>
         {
+            var secretKey = identityRepository.GetOrCreateSecretKey();
             var plaintext = endpointHelpers.ExtractSecretPlaintext(request);
             var cipher = endpointHelpers.Encrypt(secretKey, System.Text.Encoding.UTF8.GetBytes(plaintext));
             return Results.Ok(new SecretValueResponse(Convert.ToBase64String(cipher)));

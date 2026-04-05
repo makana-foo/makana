@@ -2,13 +2,13 @@
 
 @if (string.IsNullOrWhiteSpace(HxSwapOob))
 {
-    <div id="@DomId" class="@Line.CssClass">
+    <div id="@DomId" class="@Line.CssClass" data-live-line-key="@Line.Key">
         @RenderContents()
     </div>
 }
 else
 {
-    <div id="@DomId" class="@Line.CssClass" hx-swap-oob="@HxSwapOob">
+    <div id="@DomId" class="@Line.CssClass" data-live-line-key="@Line.Key" hx-swap-oob="@HxSwapOob">
         @RenderContents()
     </div>
 }

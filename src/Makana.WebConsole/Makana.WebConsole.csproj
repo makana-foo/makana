@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../Makana.Authentication/Makana.Authentication.csproj" />
     <ProjectReference Include="../Makana.ServiceDefaults/Makana.ServiceDefaults.csproj" />
     <ProjectReference Include="../Makana.StackUpdates/Makana.StackUpdates.csproj" />
     <ProjectReference Include="../Makana.Compatibility/Makana.Compatibility.csproj" />

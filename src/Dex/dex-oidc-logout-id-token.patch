@@ -1,0 +1,87 @@
+diff --git a/connector/oidc/oidc.go b/connector/oidc/oidc.go
+index 07e371dd..0795cf85 100644
+--- a/connector/oidc/oidc.go
++++ b/connector/oidc/oidc.go
+@@ -228,6 +228,7 @@ var brokenAuthHeaderDomains = []string{
+ // connectorData stores information for sessions authenticated by this connector
+ type connectorData struct {
+ 	RefreshToken []byte
++	IDToken      []byte
+ }
+ 
+ // Detect auth header provider issues for known providers. This lets users
+@@ -733,8 +734,14 @@ func (c *oidcConnector) createIdentity(ctx context.Context, identity connector.I
+ 		}
+ 	}
+ 
++	var rawIDToken string
++	if token != nil {
++		rawIDToken, _ = token.Extra("id_token").(string)
++	}
++
+ 	cd := connectorData{
+ 		RefreshToken: []byte(token.RefreshToken),
++		IDToken:      []byte(rawIDToken),
+ 	}
+ 
+ 	connData, err := json.Marshal(&cd)
+@@ -766,7 +773,38 @@ func (c *oidcConnector) createIdentity(ctx context.Context, identity connector.I
+ // LogoutURL returns the upstream OIDC provider's end_session_endpoint URL.
+ // Per the OIDC RP-Initiated Logout spec, the post_logout_redirect_uri parameter
+ // tells the upstream where to redirect after logout.
+-func (c *oidcConnector) LogoutURL(_ context.Context, _ []byte, postLogoutRedirectURI string) (string, error) {
++func (c *oidcConnector) resolveIDTokenHint(ctx context.Context, connData []byte) (string, error) {
++	if len(connData) == 0 {
++		return "", nil
++	}
++
++	var data connectorData
++	if err := json.Unmarshal(connData, &data); err != nil {
++		return "", fmt.Errorf("oidc: failed to parse connector data for logout: %v", err)
++	}
++
++	if len(data.IDToken) != 0 {
++		return string(data.IDToken), nil
++	}
++
++	if len(data.RefreshToken) == 0 {
++		return "", nil
++	}
++
++	ctx = context.WithValue(ctx, oauth2.HTTPClient, c.httpClient)
++	token, err := c.oauth2Config.TokenSource(ctx, &oauth2.Token{
++		RefreshToken: string(data.RefreshToken),
++		Expiry:       time.Now().Add(-time.Hour),
++	}).Token()
++	if err != nil {
++		return "", fmt.Errorf("oidc: failed to refresh token for logout: %v", err)
++	}
++
++	idToken, _ := token.Extra("id_token").(string)
++	return idToken, nil
++}
++
++func (c *oidcConnector) LogoutURL(ctx context.Context, connData []byte, postLogoutRedirectURI string) (string, error) {
+ 	if c.endSessionURL == "" {
+ 		return "", nil
+ 	}
+@@ -776,11 +814,19 @@ func (c *oidcConnector) LogoutURL(_ context.Context, _ []byte, postLogoutRedirec
+ 		return "", fmt.Errorf("oidc: failed to parse end_session_endpoint: %v", err)
+ 	}
+ 
++	idTokenHint, err := c.resolveIDTokenHint(ctx, connData)
++	if err != nil {
++		return "", err
++	}
++
+ 	q := u.Query()
+ 	if postLogoutRedirectURI != "" {
+ 		q.Set("post_logout_redirect_uri", postLogoutRedirectURI)
+ 		q.Set("client_id", c.oauth2Config.ClientID)
+ 	}
++	if idTokenHint != "" {
++		q.Set("id_token_hint", idTokenHint)
++	}
+ 	u.RawQuery = q.Encode()
+ 
+ 	return u.String(), nil

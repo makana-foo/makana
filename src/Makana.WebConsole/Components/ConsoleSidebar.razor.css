@@ -1,0 +1,12 @@
+aside {
+    position: relative;
+}
+
+[data-sidebar-collapse-toggle] {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    transform: none;
+    z-index: 6;
+    margin: 0;
+}

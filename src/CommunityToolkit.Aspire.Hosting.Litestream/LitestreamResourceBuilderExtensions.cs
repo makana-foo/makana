@@ -24,28 +24,51 @@ public static class LitestreamResourceBuilderExtensions
 
         LitestreamResource resource = new(name);
 
-        builder.Eventing.Subscribe<BeforeStartEvent>((_, cancellationToken) =>
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            string? directoryPath = Path.GetDirectoryName(resource.ConfigurationFileHostPath);
-            if (directoryPath is null)
-            {
-                throw new InvalidOperationException($"Unable to determine a configuration directory for Litestream resource '{resource.Name}'.");
-            }
-
-            Directory.CreateDirectory(directoryPath);
-            File.WriteAllText(resource.ConfigurationFileHostPath, resource.RenderConfiguration());
-
-            return Task.CompletedTask;
-        });
-
         return builder.AddResource(resource)
             .WithImage(LitestreamContainerImageTags.Image, LitestreamContainerImageTags.Tag)
             .WithImageRegistry(LitestreamContainerImageTags.Registry)
             .WithDockerfile("../Litestream")
-            .WithBindMount(resource.ConfigurationFileHostPath, LitestreamResource.ConfigurationFileTargetPath, isReadOnly: true)
             .WithArgs("replicate", "-config", LitestreamResource.ConfigurationFileTargetPath);
+    }
+
+    /// <summary>
+    /// Configures the runtime user baked into the Litestream sidecar image for this resource.
+    /// </summary>
+    /// <param name="builder">The Litestream resource builder.</param>
+    /// <param name="userId">The numeric user ID.</param>
+    /// <param name="groupId">The numeric group ID.</param>
+    /// <returns>The resource builder.</returns>
+    public static IResourceBuilder<LitestreamResource> WithContainerUser(
+        this IResourceBuilder<LitestreamResource> builder,
+        int userId,
+        int groupId)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        return builder
+            .WithBuildArg("UID", userId.ToString())
+            .WithBuildArg("GID", groupId.ToString());
+    }
+
+    /// <summary>
+    /// Writes the rendered Litestream configuration into the container after databases and replicas are configured.
+    /// </summary>
+    /// <param name="builder">The Litestream resource builder.</param>
+    /// <returns>The resource builder.</returns>
+    public static IResourceBuilder<LitestreamResource> WithGeneratedConfigurationFile(
+        this IResourceBuilder<LitestreamResource> builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        return builder.WithContainerFiles(
+            "/etc",
+            [
+                new ContainerFile
+                {
+                    Name = "litestream.yml",
+                    Contents = builder.Resource.RenderConfiguration()
+                }
+            ]);
     }
 
     /// <summary>

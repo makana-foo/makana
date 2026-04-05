@@ -4,12 +4,32 @@ using Makana.Api.Middleware;
 using Makana.Api.Realtime;
 using Makana.Api.Storage;
 using Makana.Api.Updates;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Routing.Constraints;
 
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.WebHost.UseKestrelHttpsConfiguration();
+
+// SECURITY: Disable the 'Server' header to prevent fingerprinting
+// CMMC SI.L2-3.14.1 - Hide system information
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.AddServerHeader = false;
+
+    // SECURITY: Limit request body size to prevent DoS attacks with oversized payloads
+    // Default is ~28.6MB, we limit to 1MB which is generous for JSON API requests
+    serverOptions.Limits.MaxRequestBodySize = 4 * 1024 * 1024; // 4MB
+});
 
 builder.AddServiceDefaults();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedHost |
+        ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.AddLitestreamDatabase(MakanaLitestreamNames.ControlDatabase);
 builder.AddLitestreamDatabaseGroup(MakanaLitestreamNames.ApiDataRoot);
 
@@ -25,10 +45,7 @@ storageRuntime.InitializeDatabase(app.Services.GetRequiredService<SqliteControlD
 
 var identityRepository = app.Services.GetRequiredService<IdentityRepository>();
 
-var secretKey = storageRuntime.CanServeDatabaseTraffic
-    ? identityRepository.GetOrCreateSecretKey()
-    : [];
-
+app.UseForwardedHeaders();
 app.UsePulumiMediaType();
 app.UseRequestDecompression();
 app.UseCors(MakanaApiServiceCollectionExtensions.WebConsoleCorsPolicyName);
@@ -45,8 +62,7 @@ app.MapStackEndpoints(
     app.Services.GetRequiredService<StackCatalogCommandRepository>(),
     app.Services.GetRequiredService<UpdateCommandRepository>(),
     app.Services.GetRequiredService<UpdateQueryRepository>(),
-    app.Services.GetRequiredService<UpdateLogRepository>(),
-    secretKey);
+    app.Services.GetRequiredService<UpdateLogRepository>());
 app.MapUpdateEndpoints(
     app.Services.GetRequiredService<StackCatalogQueryRepository>(),
     app.Services.GetRequiredService<UpdateCommandRepository>(),
@@ -57,8 +73,7 @@ app.MapUpdateEndpoints(
     app.Services.GetRequiredService<EphemeralStateJanitor>());
 app.MapDeploymentEndpoints(
     app.Services.GetRequiredService<StackCatalogQueryRepository>(),
-    app.Services.GetRequiredService<DeploymentRunRepository>(),
-    secretKey);
+    app.Services.GetRequiredService<DeploymentRunRepository>());
 app.MapRegistryEndpoints(app.Services.GetRequiredService<RegistryRepository>());
 app.MapUploadEndpoints(app.Services.GetRequiredService<UploadRepository>());
 app.MapConsoleEndpoints();

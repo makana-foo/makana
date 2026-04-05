@@ -3,6 +3,7 @@
     const liveControllers = state.liveControllers instanceof WeakMap ? state.liveControllers : new WeakMap();
     const tabStoragePrefix = "makana:tabs:";
     const scrollStoragePrefix = "makana:stack-scroll:";
+    const tokenRefreshSkewMs = 30_000;
 
     state.liveControllers = liveControllers;
 
@@ -408,6 +409,27 @@
         return `<span>Changes:</span>${parts.join("")}`;
     }
 
+    function setElementHidden(element, hidden) {
+        if (element) {
+            element.hidden = !!hidden;
+        }
+    }
+
+    function setElementHtml(element, html, hidden = false) {
+        if (!element) {
+            return;
+        }
+
+        element.innerHTML = html;
+        element.hidden = !!hidden;
+    }
+
+    function setElementText(element, value) {
+        if (element) {
+            element.textContent = value ?? "";
+        }
+    }
+
     function renderSegments(segments) {
         return normalizeArray(segments)
             .map((segment) => `<span class="${escapeHtml(segment.cssClass ?? "")}">${escapeHtml(segment.text ?? "")}</span>`)
@@ -447,7 +469,7 @@
         const body = cells.length > 0
             ? cells.map(renderCell).join("")
             : renderSegments(line.segments);
-        return `<div class="${escapeHtml(line.cssClass ?? "")}">${body}</div>`;
+        return `<div class="${escapeHtml(line.cssClass ?? "")}" data-live-line-key="${escapeHtml(line.key ?? "")}">${body}</div>`;
     }
 
     function renderConsoleBlock(viewName, lines) {
@@ -512,44 +534,6 @@
 </article>`;
     }
 
-    function renderChangesFeed(entries) {
-        return `<section class="stack-change-feed" aria-live="polite">
-    <header class="stack-change-feed__header">
-        <h4>Recent activity</h4>
-        <p class="text-light">Incremental update rows materialized from the live stream.</p>
-    </header>
-    <div id="live-update-changes-feed-entries" class="stack-change-feed__entries">
-        ${normalizeArray(entries).length === 0
-            ? '<p id="live-update-changes-feed-empty" class="stack-change-feed__empty">No change entries yet.</p>'
-            : normalizeArray(entries).map(renderChangeFeedEntry).join("")}
-    </div>
-</section>`;
-    }
-
-    function renderChangesTab(container, updateState) {
-        if (!updateState.changes?.hasEvents) {
-            return "<p>No update events recorded yet.</p>";
-        }
-
-        const tabKey = `${container.getAttribute("data-stack-view-key") ?? "stack"}:changes`;
-        return `<ot-tabs class="stack-update-tabs" data-stack-tab-state="${escapeHtml(tabKey)}">
-    <div role="tablist" class="stack-tablist stack-tablist--end">
-        <button type="button" role="tab" aria-selected="true">Summary</button>
-        <button type="button" role="tab">Diff</button>
-        <button type="button" role="tab">Diagnostic</button>
-    </div>
-    <div role="tabpanel">
-        <div id="live-update-summary-view">${renderConsoleBlock("summary", updateState.changes.summaryLines)}</div>
-    </div>
-    <div role="tabpanel">
-        ${renderConsoleBlock("diff", updateState.changes.diffLines)}
-    </div>
-    <div role="tabpanel">
-        ${renderConsoleBlock("diagnostic", updateState.changes.diagnosticLines)}
-    </div>
-</ot-tabs>`;
-    }
-
     function renderConfigurationTab(configuration) {
         if (normalizeArray(configuration).length === 0) {
             return "<p>No configuration was recorded for this update.</p>";
@@ -603,163 +587,160 @@
         return `<div class="table"><table><thead><tr><th scope="col">Type</th><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Info</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
 
-    function renderDetailGrid(items) {
-        if (normalizeArray(items).length === 0) {
-            return "";
+    function findLineElement(linesElement, key) {
+        for (const child of linesElement?.children ?? []) {
+            if (child.getAttribute("data-live-line-key") === key) {
+                return child;
+            }
         }
 
-        return `<dl class="console-detail-grid">
-    ${normalizeArray(items).map((item) => `<div class="console-detail-grid__item">
-        <dt>${escapeHtml(item.label)}</dt>
-        <dd>${escapeHtml(item.value)}</dd>
-    </div>`).join("")}
-</dl>`;
+        return null;
     }
 
-    function renderMetadataTab(updateState) {
-        const rows = [];
-        const header = updateState.header ?? {};
-        const summary = updateState.summary ?? {};
-        const info = updateState.info ?? {};
-
-        if (header.kind || info.version != null || header.message) {
-            rows.push(`<div class="stack-live-metadata">${renderDetailGrid([
-                { label: "Kind", value: header.kindLabel ?? "n/a" },
-                { label: "Version", value: info.version ?? "n/a" },
-                { label: "Message", value: header.message ?? "n/a" }
-            ])}</div>`);
+    function patchConsoleLines(viewName, lines, deltas) {
+        const linesElement = document.getElementById(`live-update-${viewName}-lines`);
+        if (!linesElement) {
+            return;
         }
 
-        if (info.startTime || info.endTime || header.resourceCount != null || summary) {
-            rows.push(`<div class="stack-live-metadata">
-    ${renderDetailGrid([
-        { label: "Preview", value: header.isPreview ? "Yes" : "No" },
-        { label: "Resource count", value: header.resourceCount ?? "n/a" },
-        { label: "Result", value: header.status ?? info.status ?? "n/a" }
-    ])}
-    ${renderDetailGrid([
-        { label: "Started", value: formatExactTime(info.startTime) },
-        { label: "Completed", value: formatExactTime(info.endTime) },
-        { label: "Maybe corrupt", value: summary?.maybeCorrupt ? "Yes" : "No" }
-    ])}
-</div>`);
+        if (normalizeArray(deltas).length === 0 || linesElement.children.length === 0) {
+            linesElement.innerHTML = normalizeArray(lines).map(renderConsoleLine).join("");
+            return;
         }
 
-        return rows.join("");
+        for (const delta of normalizeArray(deltas)) {
+            const currentLine = findLineElement(linesElement, delta.key);
+            const action = (delta.action ?? "").toLowerCase();
+
+            if (action === "delete") {
+                currentLine?.remove();
+                continue;
+            }
+
+            if (!delta.line) {
+                continue;
+            }
+
+            const renderedLine = renderConsoleLine(delta.line);
+            if (action === "insertbefore" && delta.anchorKey) {
+                const anchorLine = findLineElement(linesElement, delta.anchorKey);
+                if (anchorLine) {
+                    anchorLine.insertAdjacentHTML("beforebegin", renderedLine);
+                    continue;
+                }
+            }
+
+            if (action === "append" || !currentLine) {
+                linesElement.insertAdjacentHTML("beforeend", renderedLine);
+                continue;
+            }
+
+            currentLine.outerHTML = renderedLine;
+        }
     }
 
-    function renderLiveUpdateHeader(updateState) {
+    function updateConsoleView(viewName, lines, deltas) {
+        patchConsoleLines(viewName, lines, deltas);
+        setElementHidden(
+            document.getElementById(`live-update-${viewName}-empty`),
+            normalizeArray(lines).length > 0);
+    }
+
+    function updateHeader(updateState) {
         const header = updateState.header ?? {};
         const info = updateState.info ?? {};
         const duration = formatDuration(info.startTime, info.endTime);
         const resourceChanges = renderResourceChanges(header.resourceChanges);
-        const hasMeta = resourceChanges || header.resourceCount != null || duration;
 
-        return `<header>
-    <h2>Updates</h2>
-    <p class="stack-status-line">
-        Status:
-        <strong>${escapeHtml(header.status ?? info.status ?? "")}</strong>
-        ${renderSpinner(updateState)}
-        ${header.runLabel ? `<span> · ${escapeHtml(header.runLabel)}</span>` : ""}
-        ${info.startTime ? `<span> · <time title="${escapeHtml(formatExactTime(info.startTime))}">${escapeHtml(formatRelativeTime(info.startTime))}</time></span>` : ""}
-    </p>
-    ${header.message ? `<p><strong>${escapeHtml(header.message)}</strong></p>` : ""}
-    ${hasMeta ? `<p>${resourceChanges}${header.resourceCount != null ? `<span> · Resources <strong>${escapeHtml(header.resourceCount)}</strong></span>` : ""}${duration ? `<span> · Duration <strong>${escapeHtml(duration)}</strong></span>` : ""}</p>` : ""}
-</header>`;
+        setElementText(
+            document.getElementById("live-update-status-value"),
+            header.status ?? info.status ?? "");
+        setElementHtml(
+            document.getElementById("live-update-status-spinner"),
+            renderSpinner(updateState));
+        setElementHtml(
+            document.getElementById("live-update-run-label"),
+            header.runLabel ? ` · ${escapeHtml(header.runLabel)}` : "",
+            !header.runLabel);
+        setElementHtml(
+            document.getElementById("live-update-start-time"),
+            Number.isFinite(info.startTime) && info.startTime > 0
+                ? ` · <time title="${escapeHtml(formatExactTime(info.startTime))}">${escapeHtml(formatRelativeTime(info.startTime))}</time>`
+                : "",
+            !Number.isFinite(info.startTime) || info.startTime <= 0);
+        setElementHtml(
+            document.getElementById("live-update-message"),
+            header.message ? `<strong>${escapeHtml(header.message)}</strong>` : "",
+            !header.message);
+        setElementHtml(
+            document.getElementById("live-update-resource-changes"),
+            resourceChanges,
+            !resourceChanges);
+        setElementHtml(
+            document.getElementById("live-update-resource-count"),
+            header.resourceCount != null ? ` · Resources <strong>${escapeHtml(header.resourceCount)}</strong>` : "",
+            header.resourceCount == null);
+        setElementHtml(
+            document.getElementById("live-update-duration"),
+            duration ? ` · Duration <strong>${escapeHtml(duration)}</strong>` : "",
+            !duration);
+        setElementHidden(
+            document.getElementById("live-update-summary-meta"),
+            !resourceChanges && header.resourceCount == null && !duration);
     }
 
-    function renderLivePanel(container, updateState) {
-        const primaryTabKey = `${container.getAttribute("data-stack-view-key") ?? "stack"}:primary`;
-        return `<article id="live-update-panel" class="card">
-    <div id="live-update-panel-header">${renderLiveUpdateHeader(updateState)}</div>
-    <ot-tabs data-stack-tab-state="${escapeHtml(primaryTabKey)}">
-        <div role="tablist" class="stack-tablist">
-            <button type="button" role="tab" aria-selected="true">Changes</button>
-            <button type="button" role="tab">Timeline</button>
-            <button type="button" role="tab">Configuration</button>
-            <button type="button" role="tab">Outputs</button>
-            <button type="button" role="tab">Resources</button>
-            <button type="button" role="tab">Metadata</button>
-        </div>
-        <div role="tabpanel"><div id="live-update-panel-changes">${renderChangesTab(container, updateState)}</div></div>
-        <div role="tabpanel"><div id="live-update-panel-timeline">${renderChangesFeed(updateState.changes.entries)}</div></div>
-        <div role="tabpanel"><div id="live-update-panel-configuration">${renderConfigurationTab(updateState.configuration)}</div></div>
-        <div role="tabpanel"><div id="live-update-panel-outputs">${renderOutputsTab(updateState.outputs)}</div></div>
-        <div role="tabpanel"><div id="live-update-panel-resources">${renderResourcesTab(updateState.resources)}</div></div>
-        <div role="tabpanel"><div id="live-update-panel-metadata">${renderMetadataTab(updateState)}</div></div>
-    </ot-tabs>
-</article>`;
+    function updateMetadata(updateState) {
+        const header = updateState.header ?? {};
+        const info = updateState.info ?? {};
+        const summary = updateState.summary ?? {};
+
+        setElementText(document.getElementById("live-update-meta-kind"), header.kindLabel ?? "n/a");
+        setElementText(document.getElementById("live-update-meta-version"), info.version ?? "n/a");
+        setElementText(document.getElementById("live-update-meta-message"), header.message ?? "n/a");
+        setElementText(document.getElementById("live-update-meta-preview"), header.isPreview ? "Yes" : "No");
+        setElementText(document.getElementById("live-update-meta-resource-count"), header.resourceCount ?? "n/a");
+        setElementText(document.getElementById("live-update-meta-result"), header.status ?? info.status ?? "n/a");
+        setElementText(document.getElementById("live-update-meta-started"), formatExactTime(info.startTime));
+        setElementText(document.getElementById("live-update-meta-completed"), formatExactTime(info.endTime));
+        setElementText(document.getElementById("live-update-meta-maybe-corrupt"), summary?.maybeCorrupt ? "Yes" : "No");
     }
 
-    function renderLatestUpdate(container, updateState) {
-        const latestUpdate = normalizeArray(updateState.history)[0];
-        if (!latestUpdate) {
-            return "";
+    function updateChangeFeed(entries) {
+        const entriesElement = document.getElementById("live-update-changes-feed-entries");
+        if (!entriesElement) {
+            return;
         }
 
-        const detailsHref = buildStackRunUrl(container, latestUpdate.routeRunType, latestUpdate.routeReference);
-        return `<div id="stack-latest-update">
-    <article class="card" id="stack-latest-update-card">
-        <header>
-            <div class="stack-latest-update__header">
-                <div>
-                    <h3>Latest update</h3>
-                    <p class="text-light">Most recent activity for this stack.</p>
-                </div>
-                ${latestUpdate.routeRunType && latestUpdate.routeReference
-                    ? `<a class="button outline small" href="${escapeHtml(detailsHref)}">Open details</a>`
-                    : ""}
-            </div>
-        </header>
-        <div class="stack-latest-update__summary">
-            <p><strong>${escapeHtml(latestUpdate.title)}</strong></p>
-            <p class="text-light">
-                <span>${escapeHtml(latestUpdate.kindLabel)}</span>
-                <span> · </span>
-                <span>${escapeHtml(latestUpdate.status)}</span>
-                ${renderSpinner(updateState)}
-                ${updateState.header?.resourceCount != null ? `<span> · </span><span>${escapeHtml(updateState.header.resourceCount)} resource${updateState.header.resourceCount === 1 ? "" : "s"}</span>` : ""}
-                <span> · </span>
-                <time title="${escapeHtml(formatExactTime(latestUpdate.startTime))}">${escapeHtml(formatRelativeTime(latestUpdate.startTime))}</time>
-            </p>
-        </div>
-    </article>
-</div>`;
+        const allEntries = normalizeArray(entries);
+        entriesElement.innerHTML = allEntries.length === 0
+            ? '<p id="live-update-changes-feed-empty" class="stack-change-feed__empty">No change entries yet.</p>'
+            : allEntries.map(renderChangeFeedEntry).join("");
     }
 
-    function renderHistory(container, updateState) {
-        const history = normalizeArray(updateState.history).slice(1);
-        if (history.length === 0) {
-            return '<div id="stack-update-history"></div>';
+    function updateLiveSections(updateState) {
+        updateHeader(updateState);
+        updateConsoleView("summary", updateState.changes.summaryLines, updateState.changes.summaryLineDeltas);
+        updateConsoleView("diff", updateState.changes.diffLines, updateState.changes.diffLineDeltas);
+        updateConsoleView("diagnostic", updateState.changes.diagnosticLines, updateState.changes.diagnosticLineDeltas);
+        updateChangeFeed(updateState.changes.entries);
+
+        const configurationPanel = document.getElementById("live-update-panel-configuration");
+        const outputsPanel = document.getElementById("live-update-panel-outputs");
+        const resourcesPanel = document.getElementById("live-update-panel-resources");
+
+        if (configurationPanel) {
+            configurationPanel.innerHTML = renderConfigurationTab(updateState.configuration);
         }
 
-        const rows = history.map((entry) => `<tr>
-    <th scope="row">
-        ${entry.routeRunType && entry.routeReference
-            ? `<a href="${escapeHtml(buildStackRunUrl(container, entry.routeRunType, entry.routeReference))}"${entry.isSelected ? ' aria-current="page"' : ""}>${escapeHtml(entry.title)}</a>`
-            : `<span>${escapeHtml(entry.title)}</span>`}
-    </th>
-    <td>${escapeHtml(entry.kindLabel)}</td>
-    <td>${escapeHtml(entry.status)}</td>
-    <td><time title="${escapeHtml(formatExactTime(entry.startTime))}">${escapeHtml(formatRelativeTime(entry.startTime))}</time></td>
-    <td>${escapeHtml(entry.message ?? "n/a")}</td>
-</tr>`).join("");
+        if (outputsPanel) {
+            outputsPanel.innerHTML = renderOutputsTab(updateState.outputs);
+        }
 
-        return `<div id="stack-update-history">
-    <article class="card" id="stack-update-history-card">
-        <header>
-            <h3>Updates</h3>
-            <p class="text-light">Previous updates for this stack.</p>
-        </header>
-        <div class="table">
-            <table>
-                <thead><tr><th scope="col">Update</th><th scope="col">Kind</th><th scope="col">Status</th><th scope="col">Started</th><th scope="col">Message</th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>
-    </article>
-</div>`;
+        if (resourcesPanel) {
+            resourcesPanel.innerHTML = renderResourcesTab(updateState.resources);
+        }
+
+        updateMetadata(updateState);
     }
 
     class LiveUpdateController {
@@ -767,12 +748,15 @@
             this.container = container;
             this.viewUrl = container.getAttribute("data-live-update-view-url");
             this.hubUrl = container.getAttribute("data-live-update-hub-url");
+            this.authUrl = container.getAttribute("data-live-update-auth-url");
             this.updateId = container.getAttribute("data-live-update-id");
             this.showHistory = container.getAttribute("data-live-update-show-history") === "true";
             this.liveEnabled = container.getAttribute("data-live-update-enabled") === "true";
             this.disposed = false;
             this.connection = null;
             this.state = null;
+            this.apiToken = null;
+            this.apiTokenExpiresAt = 0;
         }
 
         async start() {
@@ -803,7 +787,12 @@
             hubUrl.searchParams.set("updateId", this.updateId);
 
             this.connection = new signalR.HubConnectionBuilder()
-                .withUrl(hubUrl.toString())
+                .withUrl(hubUrl.toString(), {
+                    accessTokenFactory: async () => {
+                        const token = await this.getApiToken();
+                        return token ?? "";
+                    }
+                })
                 .withAutomaticReconnect()
                 .build();
 
@@ -827,26 +816,27 @@
             try {
                 await this.connection.start();
             } catch (error) {
-                console.warn("Failed to start live update connection", error);
-                renderLiveUpdateNotice(
-                    this.container,
-                    "warning",
-                    "Live streaming is unavailable.",
-                    "The page loaded its initial state, but the realtime SignalR connection could not be established.");
+                try {
+                    await this.getApiToken(true);
+                    await this.connection.start();
+                } catch (retryError) {
+                    console.warn("Failed to start live update connection", retryError ?? error);
+                    renderLiveUpdateNotice(
+                        this.container,
+                        "warning",
+                        "Live streaming is unavailable.",
+                        "The page loaded its initial state, but the realtime SignalR connection could not be established.");
+                }
             }
         }
 
         async refreshSnapshot() {
-            const response = await fetch(this.viewUrl, {
-                credentials: "same-origin",
+            const response = await this.fetchAuthorized(this.viewUrl, {
                 headers: {
                     Accept: "application/vnd.pulumi+8"
                 }
             });
-
-            if (response.status === 401) {
-                this.stop();
-                renderLiveUpdateAuthExpired(this.container);
+            if (!response) {
                 return;
             }
 
@@ -856,6 +846,84 @@
 
             this.state = normalizeViewState(await response.json());
             this.render();
+        }
+
+        async getApiToken(forceRefresh = false) {
+            if (!forceRefresh &&
+                typeof this.apiToken === "string" &&
+                this.apiToken.length > 0 &&
+                (!Number.isFinite(this.apiTokenExpiresAt) || this.apiTokenExpiresAt <= 0 || Date.now() + tokenRefreshSkewMs < this.apiTokenExpiresAt)) {
+                return this.apiToken;
+            }
+
+            if (!this.authUrl) {
+                return null;
+            }
+
+            const response = await fetch(this.authUrl, {
+                credentials: "same-origin",
+                headers: {
+                    Accept: "application/json"
+                }
+            });
+
+            if (response.status === 401) {
+                this.liveEnabled = false;
+                this.apiToken = null;
+                this.apiTokenExpiresAt = 0;
+                await this.stop();
+                renderLiveUpdateAuthExpired(this.container);
+                return null;
+            }
+
+            if (!response.ok) {
+                throw new Error(`Session-token request failed: ${response.status}`);
+            }
+
+            const payload = await response.json();
+            this.apiToken = typeof payload?.accessToken === "string" ? payload.accessToken : null;
+            this.apiTokenExpiresAt = payload?.expiresAt ? Date.parse(payload.expiresAt) : 0;
+            return this.apiToken;
+        }
+
+        async fetchAuthorized(url, options = {}) {
+            const headers = new Headers(options.headers ?? {});
+            const token = await this.getApiToken();
+            if (token) {
+                headers.set("Authorization", `token ${token}`);
+            }
+
+            let response = await fetch(url, {
+                ...options,
+                credentials: "same-origin",
+                headers
+            });
+
+            if (response.status !== 401) {
+                return response;
+            }
+
+            const refreshedToken = await this.getApiToken(true);
+            if (!refreshedToken) {
+                return null;
+            }
+
+            const retryHeaders = new Headers(options.headers ?? {});
+            retryHeaders.set("Authorization", `token ${refreshedToken}`);
+            response = await fetch(url, {
+                ...options,
+                credentials: "same-origin",
+                headers: retryHeaders
+            });
+
+            if (response.status === 401) {
+                this.liveEnabled = false;
+                await this.stop();
+                renderLiveUpdateAuthExpired(this.container);
+                return null;
+            }
+
+            return response;
         }
 
         render() {
@@ -872,30 +940,7 @@
             saveActiveConsoleScroll(this.container);
             const tabState = captureTabState(this.container);
 
-            if (this.showHistory) {
-                const latestMarkup = renderLatestUpdate(this.container, this.state);
-                const historyMarkup = renderHistory(this.container, this.state);
-                const latest = this.container.querySelector("#stack-latest-update");
-                const history = this.container.querySelector("#stack-update-history");
-                if (latest) {
-                    latest.outerHTML = latestMarkup;
-                } else if (latestMarkup) {
-                    this.container.insertAdjacentHTML("beforeend", latestMarkup);
-                }
-
-                if (history) {
-                    history.outerHTML = historyMarkup;
-                } else if (historyMarkup) {
-                    this.container.insertAdjacentHTML("beforeend", historyMarkup);
-                }
-            } else {
-                const panel = this.container.querySelector("#live-update-panel");
-                if (panel) {
-                    panel.outerHTML = renderLivePanel(this.container, this.state);
-                } else {
-                    this.container.insertAdjacentHTML("beforeend", renderLivePanel(this.container, this.state));
-                }
-            }
+            updateLiveSections(this.state);
 
             window.requestAnimationFrame(() => {
                 applyTabState(this.container, tabState);
@@ -924,6 +969,18 @@
         dispose() {
             this.disposed = true;
             void this.stop();
+        }
+
+        isReady() {
+            if (!this.state) {
+                return false;
+            }
+
+            if (!this.liveEnabled) {
+                return true;
+            }
+
+            return !this.connection || this.connection.state === "Connected";
         }
     }
 
@@ -979,7 +1036,7 @@
     makanaLive.isReady = (containerOrSelector) => {
         const container = resolveLiveContainer(containerOrSelector);
         const controller = container ? liveControllers.get(container) : null;
-        return !!controller?.state;
+        return controller?.isReady?.() === true;
     };
 
     makanaLive.inject = (containerOrSelector, payload) => {

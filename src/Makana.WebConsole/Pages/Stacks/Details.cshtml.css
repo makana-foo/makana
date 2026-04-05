@@ -30,7 +30,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
 }
 
 .stack-details-page ::deep .stack-tablist--end {
@@ -55,6 +55,36 @@
     gap: 1rem;
 }
 
+.stack-details-page ::deep .console-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1rem;
+    margin: 0;
+}
+
+.stack-details-page ::deep .console-detail-grid__item {
+    margin: 0;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-medium);
+    background: var(--card);
+}
+
+.stack-details-page ::deep .console-detail-grid__item dt {
+    margin: 0 0 0.35rem;
+    color: var(--muted-foreground);
+    font-size: var(--text-7);
+    font-weight: var(--font-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.stack-details-page ::deep .console-detail-grid__item dd {
+    margin: 0;
+    color: var(--foreground);
+    word-break: break-word;
+}
+
 .stack-details-page ::deep ot-tabs {
     display: block;
     max-width: 100%;
@@ -62,7 +92,7 @@
 }
 
 .stack-details-page ::deep .stack-update-tabs {
-    margin-top: 0.75rem;
+    margin-top: 0.5rem;
 }
 
 .stack-details-page ::deep .stack-update-tabs > [role="tablist"] {
@@ -73,6 +103,10 @@
     max-width: 100%;
     margin-top: 0;
     min-width: 0;
+}
+
+.stack-details-page ::deep .stack-update-tabs > [role="tabpanel"] {
+    padding-top: 0;
 }
 
 .stack-details-page ::deep .stack-console-block {
@@ -298,6 +332,11 @@
     max-width: 100%;
     min-width: 0;
     padding: 0.85rem 1rem;
+}
+
+.stack-details-page ::deep .stack-live-empty {
+    color: var(--muted-foreground);
+    margin: 0.75rem 1rem 1rem;
 }
 
 .stack-details-page ::deep .stack-live-console-view .stack-console-lines {

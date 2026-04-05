@@ -17,13 +17,6 @@ public sealed class LitestreamResource(string name) : ContainerResource(name)
     private string _databaseRootPath = DefaultDatabaseRootPath;
     private LitestreamReplicaConfiguration? _pendingReplicaConfiguration;
 
-    internal string ConfigurationFileHostPath { get; } = Path.Combine(
-        Path.GetTempPath(),
-        "CommunityToolkit.Aspire",
-        "Litestream",
-        name,
-        "litestream.yml");
-
     internal string DatabaseRootPath
     {
         get => _databaseRootPath;

@@ -1,5 +1,5 @@
 {
-    "appHost": {
-        "path": "src/Makana.AppHost/Makana.AppHost.csproj"
-    }
+  "appHost": {
+    "path": "src/Makana.AppHost/Makana.AppHost.csproj"
+  }
 }

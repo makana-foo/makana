@@ -11,8 +11,38 @@
     <article class="card">
         <header>
             <h1 id="signin-heading">Sign In</h1>
-            <p class="text-light">Choose an OpenID Connect sign-in option. Makana never asks for your password directly.</p>
+            <p class="text-light">
+                @(string.IsNullOrWhiteSpace(owner)
+                    ? "Use your work email to discover organization SSO or choose a direct sign-in option."
+                    : "Choose a sign-in option for the selected owner. Makana never asks for your password directly.")
+            </p>
         </header>
+
+        @if (!string.IsNullOrWhiteSpace(owner) && Model.OrganizationLogin is not null)
+        {
+            <div role="status">
+                <strong>@(Model.OrganizationLogin.DisplayName ?? owner)</strong>
+                routes through organization SSO in
+                <code>@Model.OrganizationLogin.Mode</code>
+                mode.
+            </div>
+        }
+
+        @if (string.IsNullOrWhiteSpace(owner))
+        {
+            <form method="post" asp-page-handler="Discover" hx-boost="false" class="auth-provider-form">
+                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                <label data-field>
+                    Work email
+                    <input asp-for="Email"
+                           type="email"
+                           autocomplete="email"
+                           placeholder="you@company.com" />
+                </label>
+                <span asp-validation-for="Email" class="text-danger"></span>
+                <button type="submit">Find organization sign-in</button>
+            </form>
+        }
 
         <form method="post" asp-page-handler="SignIn" hx-boost="false" class="auth-provider-form">
             <input type="hidden" name="returnUrl" value="@returnUrl" />
@@ -33,7 +63,7 @@
         </form>
 
         <p class="auth-provider-note text-light">
-            Authentication is delegated to the configured OIDC provider and its upstream identity methods.
+            Authentication is delegated to Makana's shared identity service and its upstream identity methods.
         </p>
     </article>
 </section>

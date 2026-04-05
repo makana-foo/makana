@@ -19,10 +19,13 @@ internal sealed class WebConsoleApiTokenAccessor(
     private static readonly TimeSpan ExpirationSkew = TimeSpan.FromMinutes(1);
 
     public async Task<string?> GetApiTokenAsync(CancellationToken cancellationToken)
+        => (await GetApiTokenInfoAsync(cancellationToken))?.AccessToken;
+
+    public async Task<WebConsoleApiTokenInfo?> GetApiTokenInfoAsync(CancellationToken cancellationToken)
     {
         if (!environment.IsProduction() && apiOptions is { Value.ApiToken: string apiToken })
         {
-            return apiToken;
+            return new WebConsoleApiTokenInfo(apiToken, null);
         }
 
         if (httpContextAccessor is not { HttpContext: { Items: { } scopeData } httpContext })
@@ -30,7 +33,7 @@ internal sealed class WebConsoleApiTokenAccessor(
             return null;
         }
 
-        if (scopeData.TryGetValue(CachedItemKey, out var cached) && cached is string cachedToken)
+        if (scopeData.TryGetValue(CachedItemKey, out var cached) && cached is WebConsoleApiTokenInfo cachedToken)
         {
             return cachedToken;
         }
@@ -38,7 +41,7 @@ internal sealed class WebConsoleApiTokenAccessor(
         var authResult = await httpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         if (authResult is { Succeeded: true, Principal.Identity.IsAuthenticated: true })
         {
-            if (TryGetStoredApiToken(authResult.Properties) is string storedToken)
+            if (TryGetStoredApiToken(authResult.Properties) is { } storedToken)
             {
                 httpContext.Items[CachedItemKey] = storedToken;
                 return storedToken;
@@ -54,8 +57,9 @@ internal sealed class WebConsoleApiTokenAccessor(
                         CookieAuthenticationDefaults.AuthenticationScheme,
                         authResult.Principal,
                         authResult.Properties);
-                    httpContext.Items[CachedItemKey] = exchangedToken.AccessToken;
-                    return exchangedToken.AccessToken;
+                    var tokenInfo = new WebConsoleApiTokenInfo(exchangedToken.AccessToken, exchangedToken.ExpiresAt);
+                    httpContext.Items[CachedItemKey] = tokenInfo;
+                    return tokenInfo;
                 }
             }
         }
@@ -63,7 +67,7 @@ internal sealed class WebConsoleApiTokenAccessor(
         return null;
     }
 
-    private string? TryGetStoredApiToken(AuthenticationProperties properties)
+    private WebConsoleApiTokenInfo? TryGetStoredApiToken(AuthenticationProperties properties)
     {
         var token = properties.GetTokenValue(ApiTokenName);
         if (string.IsNullOrWhiteSpace(token))
@@ -82,7 +86,7 @@ internal sealed class WebConsoleApiTokenAccessor(
             return null;
         }
 
-        return token;
+        return new WebConsoleApiTokenInfo(token, expiresAt);
     }
 
     private static void StoreApiToken(AuthenticationProperties properties, WebConsoleSessionAccessToken token)
@@ -107,3 +111,5 @@ internal sealed class WebConsoleApiTokenAccessor(
         properties.StoreTokens(tokens);
     }
 }
+
+internal sealed record WebConsoleApiTokenInfo(string AccessToken, DateTimeOffset? ExpiresAt);

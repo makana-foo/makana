@@ -15,6 +15,12 @@ public sealed class IndexModel(
 
     public IReadOnlyList<ProjectSummary> Projects { get; private set; } = [];
 
+    public int VisibleMemberCount { get; private set; }
+
+    public bool CanAdministerOrganization { get; private set; }
+
+    public OrganizationSsoConfiguration? SsoConfiguration { get; private set; }
+
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(Owner))
@@ -31,22 +37,37 @@ public sealed class IndexModel(
         try
         {
             var stacks = await apiClient.GetOrganizationStacksAsync(Owner, cancellationToken);
-            Projects = stacks
+            var members = await apiClient.GetOrganizationMembersAsync(Owner, cancellationToken);
+            Projects = [.. stacks
                 .GroupBy(s => s.ProjectName)
                 .OrderBy(g => g.Key, StringComparer.Ordinal)
-                .Select(g => new ProjectSummary(g.Key, g.Count()))
-                .ToArray();
+                .Select(g => new ProjectSummary(g.Key, g.Count()))];
+            VisibleMemberCount = members.Count;
+
+            try
+            {
+                SsoConfiguration = await apiClient.GetOrganizationSsoAsync(Owner, cancellationToken);
+                CanAdministerOrganization = true;
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                CanAdministerOrganization = false;
+                SsoConfiguration = null;
+            }
+
             return Page();
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             Projects = [];
+            VisibleMemberCount = 0;
             return ConsolePageResults.ConsoleNotFound(this);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed loading organization {Owner}", Owner);
             Projects = [];
+            VisibleMemberCount = 0;
             return Page();
         }
     }

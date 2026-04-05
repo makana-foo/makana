@@ -391,7 +391,7 @@ public static class StackUpdateTextFormatter
 
     public static IReadOnlyList<string> BuildDiffLines(IReadOnlyList<StackTranscriptRow> rows)
     {
-        return BuildDiffLineProjections(rows).Select(static line => line.Text).ToArray();
+        return [.. BuildDiffLineProjections(rows).Select(static line => line.Text)];
     }
 
     private static void AppendDiffResourceLines(
@@ -1017,22 +1017,20 @@ public static class StackUpdateTextFormatter
 
     private static IReadOnlyList<KeyValuePair<string, JsonElement>> GetOrderedEntries(IReadOnlyDictionary<string, JsonElement> properties)
     {
-        return properties
+        return [.. properties
             .Where(static entry => !IsInternalDisplayProperty(entry.Key))
-            .OrderBy(static entry => entry.Key, StringComparer.Ordinal)
-            .ToArray();
+            .OrderBy(static entry => entry.Key, StringComparer.Ordinal)];
     }
 
     private static IReadOnlyList<string> GetOrderedKeys(
         IReadOnlyDictionary<string, JsonElement>? oldValue,
         IReadOnlyDictionary<string, JsonElement>? newValue)
     {
-        return (oldValue?.Keys ?? Array.Empty<string>())
+        return [.. (oldValue?.Keys ?? Array.Empty<string>())
             .Concat(newValue?.Keys ?? Array.Empty<string>())
             .Where(static key => !IsInternalDisplayProperty(key))
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(static key => key, StringComparer.Ordinal)
-            .ToArray();
+            .OrderBy(static key => key, StringComparer.Ordinal)];
     }
 
     private static bool TryParseStructuredString(JsonElement value, out JsonElement parsed, out string? prefix)

@@ -5,39 +5,52 @@
 @inject IHttpContextAccessor HttpContextAccessor
 
 <aside id="console-sidebar" data-sidebar aria-label="Primary navigation">
-    <header class="vstack gap-2">
-        <div class="vstack gap-1">
-            <strong>Makana</strong>
-            <small class="text-light">Pulumi Console MVP</small>
+    <header>
+        <button type="button"
+                class="outline small icon"
+                data-sidebar-toggle
+                data-sidebar-collapse-toggle
+                data-tooltip-placement="right"
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar">
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 28 28" width="16" height="16">
+                <use href="#shell-icon-sidebar-collapse"></use>
+            </svg>
+        </button>
+        <div class="vstack gap-2">
+            <div class="vstack gap-1">
+                <strong>Makana</strong>
+                <small class="text-light">Pulumi Console MVP</small>
+            </div>
+            <ot-dropdown>
+                <button type="button"
+                        class="outline small flex items-center justify-between gap-2 w-100"
+                        popovertarget="owner-menu"
+                        aria-label="Switch owner">
+                    <span>@SelectedOwnerLabel()</span>
+                    <DropdownChevron />
+                </button>
+                <menu popover id="owner-menu">
+                    @foreach (var group in Context.OwnerGroups)
+                    {
+                        <section aria-label="@group.Heading">
+                            <header><small class="text-light"><strong>@group.Heading</strong></small></header>
+                            @foreach (var owner in group.Options)
+                            {
+                                <a role="menuitem"
+                                   href="@OwnerSwitchHref(owner.Value)"
+                                   aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">@owner.Label</a>
+                            }
+                        </section>
+                        <hr />
+                    }
+                    <a role="menuitem"
+                       href="@OwnerPageHref("/Organizations/Create")">
+                        Create organization
+                    </a>
+                </menu>
+            </ot-dropdown>
         </div>
-        <ot-dropdown>
-            <button type="button"
-                    class="outline small flex items-center justify-between gap-2 w-100"
-                    popovertarget="owner-menu"
-                    aria-label="Switch owner">
-                <span>@SelectedOwnerLabel()</span>
-                <DropdownChevron />
-            </button>
-            <menu popover id="owner-menu" class="owner-menu">
-                @foreach (var group in Context.OwnerGroups)
-                {
-                    <section class="owner-menu-group" aria-label="@group.Heading">
-                        <header class="owner-menu-heading">@group.Heading</header>
-                        @foreach (var owner in group.Options)
-                        {
-                            <a role="menuitem"
-                               href="@OwnerSwitchHref(owner.Value)"
-                               aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">@owner.Label</a>
-                        }
-                    </section>
-                    <hr />
-                }
-                <a role="menuitem"
-                   href="@OwnerPageHref("/Organizations/Create")">
-                    Create organization
-                </a>
-            </menu>
-        </ot-dropdown>
     </header>
 
     <nav class="vstack gap-4" aria-label="Primary navigation">

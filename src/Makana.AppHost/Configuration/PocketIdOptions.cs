@@ -6,6 +6,7 @@ internal sealed class PocketIdOptions
 
     public bool UsePersistentState { get; init; } = true;
     public string? DataDirectory { get; init; }
+    public string? VolumeName { get; init; }
 
     public string ResolveDataDirectory(string contentRootPath)
     {

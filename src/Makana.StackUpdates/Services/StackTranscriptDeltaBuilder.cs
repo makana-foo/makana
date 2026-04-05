@@ -55,10 +55,9 @@ public sealed class StackTranscriptDeltaBuilder
                 row));
         }
 
-        return deltas
+        return [.. deltas
             .OrderBy(static delta => delta.Sequence)
-            .ThenBy(static delta => delta.Key, StringComparer.Ordinal)
-            .ToArray();
+            .ThenBy(static delta => delta.Key, StringComparer.Ordinal)];
     }
 
     private static bool Equivalent(StackTranscriptRow left, StackTranscriptRow right)

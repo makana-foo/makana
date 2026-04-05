@@ -2,9 +2,9 @@
 
 @if (!string.IsNullOrWhiteSpace(AvatarPath))
 {
-    <span class="console-user-avatar-shell" title="@AltText" aria-hidden="true">
-        <img class="console-user-avatar" src="@AvatarPath" alt="@AltText" width="@Size" height="@Size" />
-    </span>
+    <figure data-variant="avatar" class="@SizeClass" title="@AltText" aria-hidden="true">
+        <img src="@AvatarPath" alt="@AltText" width="@Size" height="@Size" />
+    </figure>
 }
 
 @code {
@@ -16,4 +16,10 @@
 
     [Parameter]
     public int Size { get; set; } = 28;
+
+    private string SizeClass => Size >= 48
+        ? "large"
+        : Size <= 32
+            ? "small"
+            : string.Empty;
 }

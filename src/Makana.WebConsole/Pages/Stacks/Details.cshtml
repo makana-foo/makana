@@ -10,15 +10,6 @@
     var pageHeader = new ConsolePageHeaderViewModel(
         $"Stack: {Model.Stack}",
         $"Owner: {Model.Owner}");
-    var stackMetadataItems = Model.LivePanel.StackMetadata is null
-        ? []
-        : new[]
-        {
-            new ConsoleDetailItem("Version", Model.LivePanel.StackMetadata.Version.ToString()),
-            new ConsoleDetailItem(
-                "Active update",
-                string.IsNullOrWhiteSpace(Model.LivePanel.StackMetadata.ActiveUpdate) ? "None" : Model.LivePanel.StackMetadata.ActiveUpdate)
-        };
 }
 
 <section class="stack-details-page">
@@ -48,6 +39,8 @@
     }
     else
     {
+        <partial name="_StackPageMetadataCard" model="Model.LivePanel" />
+
         <section id="stack-live-panel-container"
                  data-stack-view-key="@($"{Model.Owner}:{Model.Project}:{Model.Stack}:{Model.LivePanel.UpdateId ?? "none"}")"
                  data-live-update-owner="@Model.Owner"
@@ -58,6 +51,7 @@
                  data-live-update-show-history="@(Model.LivePanel.ShowUpdateHistory ? "true" : "false")"
                  data-live-update-view-url="@Model.StackUpdateViewUrl"
                  data-live-update-hub-url="@Model.StackUpdateHubUrl"
+                 data-live-update-auth-url="@Url.Content("~/api/live-updates/session-token")"
                  data-live-update-route-url="@stackPagePath">
             <partial name="_LiveUpdateState" model="Model.LivePanel" />
 
@@ -76,15 +70,6 @@
                 <partial name="_LiveUpdatePanel" model="Model.LivePanel" />
             }
         </section>
-
-        <article class="card">
-            <header>
-                <h3>Stack metadata</h3>
-            </header>
-            <component type="typeof(Makana.WebConsole.Components.ConsoleDetailGrid)"
-                       render-mode="Static"
-                       param-Items="stackMetadataItems" />
-        </article>
 
         <article class="card">
             <header>

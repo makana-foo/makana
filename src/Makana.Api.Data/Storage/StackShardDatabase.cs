@@ -6,20 +6,52 @@ namespace Makana.Api.Storage;
 public sealed class StackShardDatabase(SqliteControlDatabase controlDatabase)
 {
     private readonly string _rootPath = ResolveShardRootPath(controlDatabase.ConnectionString);
+    private readonly string _rootPathFull = Path.GetFullPath(ResolveShardRootPath(controlDatabase.ConnectionString));
 
-    public string RootPath => _rootPath;
+    public string RootPath => _rootPathFull;
 
     public string GetShardPath(string namespaceId, string stackId)
-        => Path.Join(_rootPath, /*namespaceId,*/ $"{stackId}.db");
+        => Path.Join(_rootPathFull, /*namespaceId,*/ $"{stackId}.db");
+
+    public string ResolveCatalogShardPath(string shardPath)
+    {
+        if (string.IsNullOrWhiteSpace(shardPath))
+        {
+            throw new InvalidOperationException("A shard path is required.");
+        }
+
+        var fullPath = Path.GetFullPath(Path.IsPathRooted(shardPath)
+            ? shardPath
+            : Path.Join(_rootPathFull, shardPath));
+
+        if (IsUnderRoot(fullPath))
+        {
+            return fullPath;
+        }
+
+        if (TryGetRelativePathUnderStacksRoot(fullPath, out var relativePath))
+        {
+            return Path.GetFullPath(Path.Join(_rootPathFull, relativePath));
+        }
+
+        var fileName = Path.GetFileName(fullPath);
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            return Path.GetFullPath(Path.Join(_rootPathFull, fileName));
+        }
+
+        return fullPath;
+    }
 
     public SqliteConnection OpenConnection(string shardPath)
         => OpenConnection(shardPath, createIfMissing: false);
 
     private SqliteConnection OpenConnection(string shardPath, bool createIfMissing)
     {
+        var resolvedPath = ResolveCatalogShardPath(shardPath);
         var builder = new SqliteConnectionStringBuilder
         {
-            DataSource = shardPath,
+            DataSource = resolvedPath,
             Mode = createIfMissing ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite
         };
         var connection = new SqliteConnection(builder.ConnectionString);
@@ -30,9 +62,10 @@ public sealed class StackShardDatabase(SqliteControlDatabase controlDatabase)
 
     public void EnsureInitialized(string shardPath)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(shardPath) ?? _rootPath);
+        var resolvedPath = ResolveCatalogShardPath(shardPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(resolvedPath) ?? _rootPathFull);
 
-        using var connection = OpenConnection(shardPath, createIfMissing: true);
+        using var connection = OpenConnection(resolvedPath, createIfMissing: true);
         using var tx = connection.BeginImmediateTransaction();
 
         using var initCommand = connection.CreateCommand();
@@ -132,9 +165,10 @@ public sealed class StackShardDatabase(SqliteControlDatabase controlDatabase)
 
     public void DeleteShard(string shardPath)
     {
-        if (File.Exists(shardPath))
+        var resolvedPath = ResolveCatalogShardPath(shardPath);
+        if (File.Exists(resolvedPath))
         {
-            using (var connection = OpenConnection(shardPath, createIfMissing: false))
+            using (var connection = OpenConnection(resolvedPath, createIfMissing: false))
             {
                 using var checkpoint = connection.CreateCommand();
                 checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
@@ -143,16 +177,45 @@ public sealed class StackShardDatabase(SqliteControlDatabase controlDatabase)
             }
 
             SqliteConnection.ClearAllPools();
-            File.Delete(shardPath);
+            File.Delete(resolvedPath);
         }
 
-        var shardDirectory = Path.GetDirectoryName(shardPath);
+        var shardDirectory = Path.GetDirectoryName(resolvedPath);
         if (!string.IsNullOrWhiteSpace(shardDirectory) &&
             Directory.Exists(shardDirectory) &&
             !Directory.EnumerateFileSystemEntries(shardDirectory).Any())
         {
             Directory.Delete(shardDirectory);
         }
+    }
+
+    private bool IsUnderRoot(string fullPath)
+    {
+        var relativePath = Path.GetRelativePath(_rootPathFull, fullPath);
+        return relativePath == "." ||
+               (!relativePath.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relativePath));
+    }
+
+    private static bool TryGetRelativePathUnderStacksRoot(string fullPath, out string relativePath)
+    {
+        relativePath = string.Empty;
+
+        var shardPathInfo = new FileInfo(fullPath);
+        var directory = shardPathInfo.Directory;
+        while (directory is not null && !string.Equals(directory.Name, "stacks", StringComparison.OrdinalIgnoreCase))
+        {
+            directory = directory.Parent;
+        }
+
+        if (directory is null)
+        {
+            return false;
+        }
+
+        relativePath = Path.GetRelativePath(directory.FullName, fullPath);
+        return !string.IsNullOrWhiteSpace(relativePath) &&
+               !relativePath.StartsWith("..", StringComparison.Ordinal) &&
+               !Path.IsPathRooted(relativePath);
     }
 
     private static string ResolveShardRootPath(string connectionString)

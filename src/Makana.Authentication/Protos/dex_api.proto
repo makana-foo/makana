@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package api;
+
+option csharp_namespace = "Makana.Authentication.DexApi";
+
+message Connector {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  bytes config = 4;
+  repeated string grant_types = 5;
+}
+
+message CreateConnectorReq {
+  Connector connector = 1;
+}
+
+message CreateConnectorResp {
+  bool already_exists = 1;
+}
+
+message GrantTypes {
+  repeated string grant_types = 1;
+}
+
+message UpdateConnectorReq {
+  string id = 1;
+  string new_type = 2;
+  string new_name = 3;
+  bytes new_config = 4;
+  GrantTypes new_grant_types = 5;
+}
+
+message UpdateConnectorResp {
+  bool not_found = 1;
+}
+
+message DeleteConnectorReq {
+  string id = 1;
+}
+
+message DeleteConnectorResp {
+  bool not_found = 1;
+}
+
+service Dex {
+  rpc CreateConnector(CreateConnectorReq) returns (CreateConnectorResp);
+  rpc UpdateConnector(UpdateConnectorReq) returns (UpdateConnectorResp);
+  rpc DeleteConnector(DeleteConnectorReq) returns (DeleteConnectorResp);
+}

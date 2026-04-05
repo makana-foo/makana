@@ -24,7 +24,7 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
 
         Owner = Context.SelectedOwner;
 
-        Projects = Context.SelectedOwnerStacks
+        Projects = [.. Context.SelectedOwnerStacks
             .GroupBy(stack => stack.ProjectName)
             .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group =>
@@ -40,12 +40,10 @@ public sealed class IndexModel(ConsoleContextService consoleContextService) : Pa
                     FirstTag(group, "pulumi:description"),
                     FirstTag(group, "pulumi:runtime"),
                     updatedTimes.Length == 0 ? null : updatedTimes.Max(),
-                    group
+                    [.. group
                         .OrderByDescending(stack => stack.LastUpdate ?? 0)
-                        .ThenBy(stack => stack.StackName, StringComparer.Ordinal)
-                        .ToArray());
-            })
-            .ToArray();
+                        .ThenBy(stack => stack.StackName, StringComparer.Ordinal)]);
+            })];
 
         return Page();
     }

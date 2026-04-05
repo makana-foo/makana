@@ -2,8 +2,11 @@ namespace Makana.WebConsole.Models;
 
 public static class ConsoleRoutePaths
 {
-    public static string Login()
-        => "/login";
+    public static string Splash()
+        => "/";
+
+    public static string Login(bool showProviders = false)
+        => showProviders ? "/login?showProviders=true" : "/login";
 
     public static string Reauthenticate()
         => "/reauthenticate";

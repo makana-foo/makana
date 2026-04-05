@@ -1,22 +1,12 @@
 {
   "profiles": {
-    "http": {
-      "commandName": "Project",
-      "launchBrowser": true,
-      "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
-      },
-      "dotnetRunMessages": true,
-      "applicationUrl": "http://app-makana.dev.localhost:5086"
-    },
     "https": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "dotnetRunMessages": true,
-      "applicationUrl": "https://app-makana.dev.localhost:7052;http://app-makana.dev.localhost:5086"
+      "dotnetRunMessages": true
     },
     "Testing": {
       "commandName": "Project",
@@ -26,8 +16,7 @@
         "DOTNET_ENVIRONMENT": "Testing",
         "MAKANA_WEBCONSOLE_API_TOKEN": "test-webconsole-api-token"
       },
-      "dotnetRunMessages": true,
-      "applicationUrl": "https://app-makana.dev.localhost:7052;http://app-makana.dev.localhost:5086"
+      "dotnetRunMessages": true
     },
     "NonProd": {
       "commandName": "Project",
@@ -37,7 +26,7 @@
         "ASPNETCORE_ENVIRONMENT": "NonProd",
         "DOTNET_ENVIRONMENT": "NonProd"
       },
-      "applicationUrl": "https://makana.foo;http://makana.foo"
+      "applicationUrl": "https://makana.foo"
     },
     "Container (Dockerfile)": {
       "commandName": "Docker",

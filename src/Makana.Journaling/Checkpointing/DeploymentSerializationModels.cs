@@ -545,7 +545,7 @@ internal static class CheckpointWireValueConverter
             int intValue => CheckpointPropertyValue.Number(intValue),
             long longValue => CheckpointPropertyValue.Number(longValue),
             Dictionary<string, object?> dictionaryValue => DeserializeObject(dictionaryValue, secretsManagerAvailable),
-            List<object?> listValue => CheckpointPropertyValue.Array(listValue.Select(item => FromWireValue(item, secretsManagerAvailable)).ToArray()),
+            List<object?> listValue => CheckpointPropertyValue.Array([.. listValue.Select(item => FromWireValue(item, secretsManagerAvailable))]),
             _ => throw new InvalidOperationException($"unsupported property value type '{value.GetType()}'"),
         };
     }

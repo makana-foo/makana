@@ -33,6 +33,158 @@ public record ServiceTokenInfo(
     [property: JsonPropertyName("team")] string? Team
 );
 
+public record CreateOrganizationRequest(
+    [property: JsonPropertyName("name")] string Name
+);
+
+public record CreateOrganizationResponse(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("login")] string Login,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("redirectPath")] string RedirectPath
+);
+
+public record OrganizationMemberResponse(
+    [property: JsonPropertyName("userId")] string UserId,
+    [property: JsonPropertyName("login")] string Login,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("email")] string? Email,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("membershipKind")] string MembershipKind
+);
+
+public record OrganizationMembersResponse(
+    [property: JsonPropertyName("members")] OrganizationMemberResponse[] Members
+);
+
+public record CreateOrganizationInviteRequest(
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("role")] string Role
+);
+
+public record OrganizationInviteResponse(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("createdAt")] string CreatedAt,
+    [property: JsonPropertyName("claimed")] bool Claimed,
+    [property: JsonPropertyName("revoked")] bool Revoked
+);
+
+public record OrganizationInvitesResponse(
+    [property: JsonPropertyName("invites")] OrganizationInviteResponse[] Invites
+);
+
+public record ClaimOrganizationMembershipResponse(
+    [property: JsonPropertyName("claimedMemberships")] int ClaimedMemberships
+);
+
+public record UpdateOrganizationMemberRequest(
+    [property: JsonPropertyName("role")] string Role
+);
+
+public record CreateOrganizationTokenRequest(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("expiresInDays")] int? ExpiresInDays
+);
+
+public record OrganizationTokenSummaryResponse(
+    [property: JsonPropertyName("tokenId")] string TokenId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("createdByUserId")] string? CreatedByUserId,
+    [property: JsonPropertyName("issuedAt")] string IssuedAt,
+    [property: JsonPropertyName("expiresAt")] string? ExpiresAt,
+    [property: JsonPropertyName("revoked")] bool Revoked
+);
+
+public record OrganizationTokensResponse(
+    [property: JsonPropertyName("tokens")] OrganizationTokenSummaryResponse[] Tokens
+);
+
+public record CreateOrganizationTokenResponse(
+    [property: JsonPropertyName("tokenId")] string TokenId,
+    [property: JsonPropertyName("token")] string Token,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("expiresAt")] string? ExpiresAt
+);
+
+public record OrganizationOidcConfigurationRequest(
+    [property: JsonPropertyName("issuer")] string Issuer,
+    [property: JsonPropertyName("clientId")] string ClientId,
+    [property: JsonPropertyName("clientSecret")] string ClientSecret
+);
+
+public record OrganizationSamlConfigurationRequest(
+    [property: JsonPropertyName("ssoUrl")] string SsoUrl,
+    [property: JsonPropertyName("caCertificatePem")] string CaCertificatePem,
+    [property: JsonPropertyName("usernameAttribute")] string UsernameAttribute,
+    [property: JsonPropertyName("emailAttribute")] string EmailAttribute,
+    [property: JsonPropertyName("groupsAttribute")] string? GroupsAttribute,
+    [property: JsonPropertyName("entityIssuer")] string? EntityIssuer,
+    [property: JsonPropertyName("ssoIssuer")] string? SsoIssuer,
+    [property: JsonPropertyName("groupsDelimiter")] string? GroupsDelimiter,
+    [property: JsonPropertyName("nameIdPolicyFormat")] string? NameIdPolicyFormat
+);
+
+public record UpdateOrganizationSsoRequest(
+    [property: JsonPropertyName("protocol")] string Protocol,
+    [property: JsonPropertyName("mode")] string Mode,
+    [property: JsonPropertyName("displayName")] string? DisplayName,
+    [property: JsonPropertyName("domains")] string[]? Domains,
+    [property: JsonPropertyName("scimBearerToken")] string? ScimBearerToken,
+    [property: JsonPropertyName("oidc")] OrganizationOidcConfigurationRequest? Oidc,
+    [property: JsonPropertyName("saml")] OrganizationSamlConfigurationRequest? Saml
+);
+
+public record OrganizationSsoResponse(
+    [property: JsonPropertyName("protocol")] string Protocol,
+    [property: JsonPropertyName("mode")] string Mode,
+    [property: JsonPropertyName("connectionId")] string? ConnectionId,
+    [property: JsonPropertyName("displayName")] string? DisplayName,
+    [property: JsonPropertyName("domains")] string[] Domains,
+    [property: JsonPropertyName("hasScimBearerToken")] bool HasScimBearerToken,
+    [property: JsonPropertyName("scimBearerToken")] string? ScimBearerToken,
+    [property: JsonPropertyName("oidc")] OrganizationOidcConfigurationRequest? Oidc,
+    [property: JsonPropertyName("saml")] OrganizationSamlConfigurationRequest? Saml
+);
+
+public record OrganizationLoginDiscoveryResponse(
+    [property: JsonPropertyName("organization")] string Organization,
+    [property: JsonPropertyName("protocol")] string Protocol,
+    [property: JsonPropertyName("mode")] string Mode,
+    [property: JsonPropertyName("connectionId")] string? ConnectionId,
+    [property: JsonPropertyName("displayName")] string? DisplayName
+);
+
+public record ScimUserEmail(
+    [property: JsonPropertyName("value")] string Value,
+    [property: JsonPropertyName("primary")] bool? Primary
+);
+
+public record ScimUserRequest(
+    [property: JsonPropertyName("externalId")] string ExternalId,
+    [property: JsonPropertyName("userName")] string UserName,
+    [property: JsonPropertyName("displayName")] string? DisplayName,
+    [property: JsonPropertyName("active")] bool? Active,
+    [property: JsonPropertyName("emails")] ScimUserEmail[]? Emails
+);
+
+public record ScimUserResponse(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("externalId")] string ExternalId,
+    [property: JsonPropertyName("userName")] string UserName,
+    [property: JsonPropertyName("displayName")] string? DisplayName,
+    [property: JsonPropertyName("active")] bool Active
+);
+
+public record ScimServiceProviderConfigResponse(
+    [property: JsonPropertyName("schemas")] string[] Schemas,
+    [property: JsonPropertyName("patch")] object Patch,
+    [property: JsonPropertyName("filter")] object Filter
+);
+
 public record ServiceUser(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("githubLogin")] string GitHubLogin,

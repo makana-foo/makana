@@ -270,8 +270,8 @@ public sealed class CloudJournaler
         catch (JournalHttpException ex) when (ex.StatusCode == 413 && batch.Count > 1)
         {
             var midpoint = batch.Count / 2;
-            await SendBatchAsync(batch.Take(midpoint).ToArray(), sender).ConfigureAwait(false);
-            await SendBatchAsync(batch.Skip(midpoint).ToArray(), sender).ConfigureAwait(false);
+            await SendBatchAsync([.. batch.Take(midpoint)], sender).ConfigureAwait(false);
+            await SendBatchAsync([.. batch.Skip(midpoint)], sender).ConfigureAwait(false);
         }
     }
 
