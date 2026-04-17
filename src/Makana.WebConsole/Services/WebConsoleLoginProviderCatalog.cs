@@ -10,6 +10,7 @@ public sealed class WebConsoleLoginProviderCatalog
     public const string AuthenticationProviderItemKey = "makana.auth.provider";
     public const string AuthenticationOwnerItemKey = "makana.auth.owner";
     public const string AuthenticationChallengeValueItemKey = "makana.auth.challenge";
+    public const string AuthenticationSignedInOwnersItemKey = WebConsoleAuthenticationState.SignedInOwnersItemKey;
 
     private readonly IReadOnlyList<WebConsoleLoginProvider> _globalProviders;
     private readonly Dictionary<string, OrganizationProviderSelection> _organizationProviders;

@@ -36,12 +36,22 @@ public sealed class LoginModel(
         bool showProviders = false,
         CancellationToken cancellationToken = default)
     {
+        OrganizationLogin = await ResolveOrganizationLoginAsync(ResolvedOwner, cancellationToken);
+
         if (User.Identity?.IsAuthenticated == true)
         {
+            if (await ShouldChallengeOrganizationLoginAsync(OrganizationLogin, cancellationToken))
+            {
+                if (!showProviders)
+                {
+                    return BuildChallenge(null, returnUrl, OrganizationLogin);
+                }
+
+                return Page();
+            }
+
             return LocalRedirect(await ResolveAuthenticatedReturnUrlAsync(returnUrl, cancellationToken));
         }
-
-        OrganizationLogin = await ResolveOrganizationLoginAsync(ResolvedOwner, cancellationToken);
 
         if (OrganizationLogin is not null && !showProviders)
         {
@@ -58,23 +68,33 @@ public sealed class LoginModel(
 
     public async Task<IActionResult> OnGetSignInAsync(string? provider = null, string? returnUrl = null, CancellationToken cancellationToken = default)
     {
+        OrganizationLogin = await ResolveOrganizationLoginAsync(ResolveEffectiveOwner(returnUrl), cancellationToken);
+
         if (User.Identity?.IsAuthenticated == true)
         {
+            if (await ShouldChallengeOrganizationLoginAsync(OrganizationLogin, cancellationToken))
+            {
+                return BuildChallenge(provider, returnUrl, OrganizationLogin);
+            }
+
             return LocalRedirect(await ResolveAuthenticatedReturnUrlAsync(returnUrl, cancellationToken));
         }
-
-        OrganizationLogin = await ResolveOrganizationLoginAsync(ResolveEffectiveOwner(returnUrl), cancellationToken);
         return BuildChallenge(provider, returnUrl, OrganizationLogin);
     }
 
     public async Task<IActionResult> OnPostSignInAsync(string? provider = null, string? returnUrl = null, CancellationToken cancellationToken = default)
     {
+        OrganizationLogin = await ResolveOrganizationLoginAsync(ResolveEffectiveOwner(returnUrl), cancellationToken);
+
         if (User.Identity?.IsAuthenticated == true)
         {
+            if (await ShouldChallengeOrganizationLoginAsync(OrganizationLogin, cancellationToken))
+            {
+                return BuildChallenge(provider, returnUrl, OrganizationLogin);
+            }
+
             return LocalRedirect(await ResolveAuthenticatedReturnUrlAsync(returnUrl, cancellationToken));
         }
-
-        OrganizationLogin = await ResolveOrganizationLoginAsync(ResolveEffectiveOwner(returnUrl), cancellationToken);
         return BuildChallenge(provider, returnUrl, OrganizationLogin);
     }
 
@@ -218,6 +238,24 @@ public sealed class LoginModel(
         return await apiClient.GetOrganizationLoginAsync(owner, cancellationToken);
     }
 
+    private async Task<bool> ShouldChallengeOrganizationLoginAsync(
+        OrganizationLoginDiscovery? organizationLogin,
+        CancellationToken cancellationToken)
+    {
+        if (organizationLogin is null || string.IsNullOrWhiteSpace(organizationLogin.ConnectionId))
+        {
+            return false;
+        }
+
+        if (User.Identity?.IsAuthenticated != true)
+        {
+            return true;
+        }
+
+        var authResult = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        return !WebConsoleAuthenticationState.IsOwnerSignedIn(authResult.Properties, organizationLogin.Organization);
+    }
+
     internal static IReadOnlyList<WebConsoleLoginProvider> BuildOrganizationProvidersForTests(
         OrganizationLoginDiscovery organizationLogin,
         WebConsoleLoginProviderCatalog loginProviderCatalog,
@@ -230,14 +268,7 @@ public sealed class LoginModel(
             $"Continue with {organizationLogin.DisplayName ?? organizationLogin.Organization}",
             organizationLogin.ConnectionId ?? organizationLogin.Organization);
 
-        if (!string.Equals(organizationLogin.Mode, "optional", StringComparison.OrdinalIgnoreCase))
-        {
-            return [ssoProvider];
-        }
-
-        List<WebConsoleLoginProvider> providers = [ssoProvider];
-        providers.AddRange(loginProviderCatalog.GetProviders(owner));
-        return providers;
+        return [ssoProvider];
     }
 
     internal static bool ShouldUseOrganizationDiscoveryForTests(string? provider, OrganizationLoginDiscovery organizationLogin, string? owner)

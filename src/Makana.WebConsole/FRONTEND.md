@@ -6,7 +6,7 @@ This guide defines the frontend rules for `src/Makana.WebConsole`. Follow it for
 
 When guidance conflicts, use this order:
 
-1. Product requirements and approved OpenSpec changes.
+1. Product requirements.
 2. This guide.
 3. Existing Makana Web Console patterns that already follow this guide.
 4. The closest Oat example or semantic pattern.

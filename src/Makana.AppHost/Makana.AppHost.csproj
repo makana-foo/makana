@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.2.2">
+<Project Sdk="Aspire.AppHost.Sdk/13.2.3">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -15,8 +15,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.Kubernetes" Version="13.2.2-preview.1.26207.2" />
-    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.2.2" />
+    <PackageReference Include="Aspire.Hosting.Kubernetes" Version="13.2.3-preview.1.26217.6" />
+    <PackageReference Include="Aspire.Hosting.Yarp" Version="13.2.3" />
   </ItemGroup>
 
 </Project>

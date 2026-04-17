@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace Makana.WebConsole.Pages.Account;
 
-public sealed class TokensModel(PulumiCliLoginService cliLoginService) : PageModel
+public sealed class TokensModel(
+    PulumiCliLoginService cliLoginService,
+    IWebConsoleApiTokenAccessor apiTokenAccessor) : PageModel
 {
     public string AccessToken { get; private set; } = string.Empty;
 
@@ -18,7 +20,8 @@ public sealed class TokensModel(PulumiCliLoginService cliLoginService) : PageMod
             return BuildChallenge();
         }
 
-        var accessToken = await cliLoginService.ExchangeIdTokenAsync(idToken, cancellationToken);
+        var currentApiToken = await apiTokenAccessor.GetApiTokenAsync(cancellationToken);
+        var accessToken = await cliLoginService.ExchangeIdTokenAsync(idToken, currentApiToken, cancellationToken);
         if (string.IsNullOrWhiteSpace(accessToken))
         {
             return BuildChallenge();

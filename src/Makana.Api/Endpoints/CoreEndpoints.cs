@@ -132,6 +132,7 @@ internal static class CoreEndpoints
 
         app.MapPost("/api/oauth/token", async Task<IResult> (
             HttpRequest request,
+            AuthenticatedApiContextAccessor authenticatedApiContextAccessor,
             OidcSubjectTokenValidator subjectTokenValidator,
             OidcSubjectTokenValidationOptions validationOptions,
             CancellationToken cancellationToken) =>
@@ -173,6 +174,7 @@ internal static class CoreEndpoints
                 subjectToken,
                 subjectTokenValidator,
                 identityRepository,
+                ResolveCurrentUserIdForLinking(authenticatedApiContextAccessor),
                 cancellationToken);
             if (validatedContext is null)
             {
@@ -284,6 +286,7 @@ internal static class CoreEndpoints
     private static async Task<Results<BadRequest<ErrorResponse>, UnauthorizedHttpResult, Ok<WebConsoleSessionTokenResponse>>> HandleCreateWebConsoleSessionTokenAsync(
         HttpRequest request,
         IdentityRepository identityRepository,
+        AuthenticatedApiContextAccessor authenticatedApiContextAccessor,
         OidcSubjectTokenValidator subjectTokenValidator,
         CancellationToken cancellationToken)
     {
@@ -309,6 +312,7 @@ internal static class CoreEndpoints
             idToken,
             subjectTokenValidator,
             identityRepository,
+            ResolveCurrentUserIdForLinking(authenticatedApiContextAccessor),
             cancellationToken);
         if (validatedContext is null)
         {
@@ -430,6 +434,7 @@ internal static class CoreEndpoints
         string subjectToken,
         OidcSubjectTokenValidator subjectTokenValidator,
         IdentityRepository identityRepository,
+        string? preferredUserId,
         CancellationToken cancellationToken)
     {
         var tokenHandler = new JsonWebTokenHandler();
@@ -472,7 +477,12 @@ internal static class CoreEndpoints
             login,
             displayName,
             OidcClaimHelpers.ResolveEmail(validatedSubjectToken.Principal),
-            OidcClaimHelpers.ResolveEmailVerified(validatedSubjectToken.Principal));
+            OidcClaimHelpers.ResolveEmailVerified(validatedSubjectToken.Principal),
+            preferredUserId);
+        if (linkedIdentity is null)
+        {
+            return null;
+        }
         var verifiedEmail = OidcClaimHelpers.ResolveEmailVerified(validatedSubjectToken.Principal)
             ? OidcClaimHelpers.ResolveEmail(validatedSubjectToken.Principal)
             : null;
@@ -487,6 +497,19 @@ internal static class CoreEndpoints
         }
 
         return new ValidatedSubjectContext(validatedSubjectToken, linkedIdentity, user.Value);
+    }
+
+    private static string? ResolveCurrentUserIdForLinking(AuthenticatedApiContextAccessor authenticatedApiContextAccessor)
+    {
+        var current = authenticatedApiContextAccessor.GetCurrent();
+        if (!current.IsAuthenticated ||
+            string.IsNullOrWhiteSpace(current.UserId) ||
+            !string.Equals(current.PrincipalType, PulumiAccessTokenTypes.PrincipalUser, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return current.UserId;
     }
 
     private static string? NormalizeTheme(string? theme)

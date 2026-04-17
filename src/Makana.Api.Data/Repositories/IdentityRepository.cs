@@ -1245,16 +1245,17 @@ public sealed class IdentityRepository(SqliteControlDatabase database)
             });
     }
 
-    public LinkedIdentityResolution ResolveLinkedIdentity(
+    public LinkedIdentityResolution? ResolveLinkedIdentity(
         string issuer,
         string subject,
         string login,
         string displayName,
         string? email,
-        bool emailVerified)
+        bool emailVerified,
+        string? preferredUserId = null)
     {
         var normalizedLogin = NormalizeLogin(login, subject);
-        var effectiveDisplayName = string.IsNullOrWhiteSpace(displayName)
+        var normalizedDisplayName = string.IsNullOrWhiteSpace(displayName)
             ? normalizedLogin
             : displayName.Trim();
         var now = DateTimeOffset.UtcNow.ToString("O");
@@ -1273,17 +1274,66 @@ public sealed class IdentityRepository(SqliteControlDatabase database)
             new { issuer, subject },
             transaction);
 
-        var userId = linkedIdentity?.UserId
-            ?? connection.QuerySingleOrDefault<string>(
+        string userId;
+        if (!string.IsNullOrWhiteSpace(preferredUserId))
+        {
+            if (linkedIdentity is not null &&
+                !string.Equals(linkedIdentity.UserId, preferredUserId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var preferredUserExists = connection.QuerySingleOrDefault<int?>(
                 """
-                SELECT id
+                SELECT 1
                 FROM users
-                WHERE github_login = @login COLLATE NOCASE
+                WHERE id = @userId
                 LIMIT 1;
                 """,
-                new { login = normalizedLogin },
-                transaction)
-            ?? "user-" + Guid.NewGuid().ToString("N");
+                new { userId = preferredUserId },
+                transaction);
+            if (preferredUserExists is null)
+            {
+                return null;
+            }
+
+            userId = preferredUserId!;
+        }
+        else
+        {
+            userId = linkedIdentity?.UserId
+                ?? connection.QuerySingleOrDefault<string>(
+                    """
+                    SELECT id
+                    FROM users
+                    WHERE github_login = @login COLLATE NOCASE
+                    LIMIT 1;
+                    """,
+                    new { login = normalizedLogin },
+                    transaction)
+                ?? "user-" + Guid.NewGuid().ToString("N");
+        }
+
+        var existingUser = connection.QuerySingleOrDefault<UserRow>(
+            """
+            SELECT
+                id AS Id,
+                github_login AS Login,
+                display_name AS Name,
+                email AS Email,
+                avatar_url AS AvatarUrl
+            FROM users
+            WHERE id = @userId
+            LIMIT 1;
+            """,
+            new { userId },
+            transaction);
+        var effectiveLogin = string.IsNullOrWhiteSpace(existingUser?.Login)
+            ? normalizedLogin
+            : existingUser.Login;
+        var effectiveDisplayName = string.IsNullOrWhiteSpace(existingUser?.Name)
+            ? normalizedDisplayName
+            : existingUser.Name;
 
         connection.Execute(
             """
@@ -1298,10 +1348,10 @@ public sealed class IdentityRepository(SqliteControlDatabase database)
             new
             {
                 id = userId,
-                login = normalizedLogin,
+                login = effectiveLogin,
                 displayName = effectiveDisplayName,
-                email,
-                avatarUrl = string.Empty
+                email = email ?? existingUser?.Email,
+                avatarUrl = string.IsNullOrWhiteSpace(existingUser?.AvatarUrl) ? string.Empty : existingUser.AvatarUrl
             },
             transaction);
 
@@ -1347,7 +1397,7 @@ public sealed class IdentityRepository(SqliteControlDatabase database)
             transaction);
 
         transaction.Commit();
-        return new LinkedIdentityResolution(identityId, userId, normalizedLogin);
+        return new LinkedIdentityResolution(identityId, userId, effectiveLogin);
     }
 
     public string? GetOrgIdByLogin(string login)
@@ -1423,7 +1473,7 @@ public sealed class IdentityRepository(SqliteControlDatabase database)
         {
             var value when string.Equals(value, "required", StringComparison.OrdinalIgnoreCase) => "required",
             var value when string.Equals(value, "exclusive", StringComparison.OrdinalIgnoreCase) => "exclusive",
-            _ => "optional"
+            _ => "required"
         };
 
     private static string NormalizeSsoProtocol(string protocol)

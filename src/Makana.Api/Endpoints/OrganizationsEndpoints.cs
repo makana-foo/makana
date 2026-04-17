@@ -78,7 +78,7 @@ internal static class OrganizationsEndpoints
             return Results.Ok(new OrganizationLoginDiscoveryResponse(
                 organization.Login,
                 sso.Protocol,
-                sso.Mode,
+                NormalizeSsoMode(sso.Mode),
                 sso.ConnectionId,
                 sso.DisplayName));
         }).AllowAnonymous();
@@ -94,7 +94,7 @@ internal static class OrganizationsEndpoints
             return Results.Ok(new OrganizationLoginDiscoveryResponse(
                 org,
                 sso.Protocol,
-                sso.Mode,
+                NormalizeSsoMode(sso.Mode),
                 sso.ConnectionId,
                 sso.DisplayName));
         }).AllowAnonymous();
@@ -443,7 +443,7 @@ internal static class OrganizationsEndpoints
     private static OrganizationSsoResponse ToOrganizationSsoResponse(OrganizationSsoConfigurationRecord config)
         => new(
             config.Protocol,
-            config.Mode,
+            NormalizeSsoMode(config.Mode),
             config.ConnectionId,
             config.DisplayName,
             [.. config.Domains],
@@ -467,6 +467,9 @@ internal static class OrganizationsEndpoints
                     config.Saml.SsoIssuer,
                     config.Saml.GroupsDelimiter,
                     config.Saml.NameIdPolicyFormat));
+
+    private static string NormalizeSsoMode(string mode)
+        => string.Equals(mode, "exclusive", StringComparison.OrdinalIgnoreCase) ? "exclusive" : "required";
 
     private static string BuildDexConnectorRedirectUri(IConfiguration configuration)
     {

@@ -118,28 +118,23 @@ public sealed class ReauthenticateModel(
         OrganizationLoginDiscovery? organizationLogin,
         CancellationToken cancellationToken)
     {
-        if (organizationLogin is null ||
-            string.Equals(organizationLogin.Mode, "optional", StringComparison.OrdinalIgnoreCase))
+        if (organizationLogin is null)
         {
             return false;
         }
 
-        var authenticatedOwner = await GetAuthenticatedOwnerAsync(cancellationToken);
-        return !string.Equals(authenticatedOwner, organizationLogin.Organization, StringComparison.OrdinalIgnoreCase);
+        var signedInOwners = await GetSignedInOwnersAsync(cancellationToken);
+        return !signedInOwners.Contains(organizationLogin.Organization);
     }
 
-    private async Task<string?> GetAuthenticatedOwnerAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlySet<string>> GetSignedInOwnersAsync(CancellationToken cancellationToken)
     {
         if (User.Identity?.IsAuthenticated != true)
         {
-            return null;
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         var authResult = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        return authResult.Properties?.Items.TryGetValue(
-            WebConsoleLoginProviderCatalog.AuthenticationOwnerItemKey,
-            out var owner) == true
-            ? owner
-            : null;
+        return WebConsoleAuthenticationState.GetSignedInOwners(authResult.Properties);
     }
 }

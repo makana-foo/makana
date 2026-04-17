@@ -30,7 +30,7 @@
                     <span>@SelectedOwnerLabel()</span>
                     <DropdownChevron />
                 </button>
-                <menu popover id="owner-menu">
+                <menu popover id="owner-menu" data-owner-menu>
                     @foreach (var group in Context.OwnerGroups)
                     {
                         <section aria-label="@group.Heading">
@@ -38,8 +38,22 @@
                             @foreach (var owner in group.Options)
                             {
                                 <a role="menuitem"
+                                   class="@OwnerMenuItemClass(owner)"
                                    href="@OwnerSwitchHref(owner.Value)"
-                                   aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">@owner.Label</a>
+                                   aria-current="@(IsSelectedOwner(owner.Value) ? "page" : null)">
+                                    @if (!owner.IsPersonal && owner.RequiresOrganizationSignIn)
+                                    {
+                                        <svg class="owner-menu-lock-icon"
+                                             aria-hidden="true"
+                                             focusable="false"
+                                             viewBox="0 0 32 32"
+                                             width="16"
+                                             height="16">
+                                            <use href="@(owner.IsSignedIn ? "#fluent--lock-open-32-light" : "#fluent--lock-closed-32-light")"></use>
+                                        </svg>
+                                    }
+                                    <span>@owner.Label</span>
+                                </a>
                             }
                         </section>
                         <hr />
@@ -79,6 +93,9 @@
 
     private bool IsSelectedOwner(string ownerValue)
         => string.Equals(ownerValue, Context.SelectedOwner, StringComparison.Ordinal);
+
+    private string OwnerMenuItemClass(ConsoleOwnerOption owner)
+        => IsSelectedOwner(owner.Value) ? "owner-menu-item selected" : "owner-menu-item";
 
     private string? AriaCurrent(string section)
         => string.Equals(section, ActiveSection, StringComparison.Ordinal) ? "page" : null;

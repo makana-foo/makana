@@ -23,19 +23,13 @@ public sealed class OrganizationSsoReauthenticationService(PulumiApiClient apiCl
             return null;
         }
 
-        var authenticatedOwner = authResult.Properties?.Items.TryGetValue(
-            WebConsoleLoginProviderCatalog.AuthenticationOwnerItemKey,
-            out var ownerItem) == true
-            ? ownerItem
-            : null;
-        if (string.Equals(authenticatedOwner, requestedOwner, StringComparison.OrdinalIgnoreCase))
+        if (WebConsoleAuthenticationState.IsOwnerSignedIn(authResult.Properties, requestedOwner))
         {
             return null;
         }
 
         var organizationLogin = await apiClient.GetOrganizationLoginAsync(requestedOwner, cancellationToken);
-        if (organizationLogin is null ||
-            string.Equals(organizationLogin.Mode, "optional", StringComparison.OrdinalIgnoreCase))
+        if (organizationLogin is null)
         {
             return null;
         }

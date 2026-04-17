@@ -1,4 +1,5 @@
 using Makana.WebConsole.Models;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Routing;
 
 namespace Makana.WebConsole.Services;
@@ -17,9 +18,10 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
 
         var user = await apiClient.GetUserAsync(cancellationToken);
         var stacks = await apiClient.GetUserStacksAsync(cancellationToken);
+        var signedInOwners = await GetSignedInOwnersAsync(httpContext);
 
         var personalOwner = ResolvePersonalOwner(user);
-        var ownerOptions = BuildOwnerOptions(user, personalOwner);
+        var ownerOptions = await BuildOwnerOptionsAsync(user, personalOwner, signedInOwners, cancellationToken);
         var ownerGroups = BuildOwnerGroups(ownerOptions);
         var requestedOwner = httpContext.GetRouteValue("owner")?.ToString();
         var selectedOwner = ResolveSelectedOwner(requestedOwner, ownerOptions, personalOwner);
@@ -68,7 +70,11 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
         return "personal";
     }
 
-    private static ConsoleOwnerOption[] BuildOwnerOptions(ServiceUser? user, string personalOwner)
+    private async Task<ConsoleOwnerOption[]> BuildOwnerOptionsAsync(
+        ServiceUser? user,
+        string personalOwner,
+        IReadOnlySet<string> signedInOwners,
+        CancellationToken cancellationToken)
     {
         var organizationEntries = new List<ConsoleOwnerOption>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -87,7 +93,13 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
                     continue;
                 }
 
-                organizationEntries.Add(new ConsoleOwnerOption(orgName, orgName, false));
+                var requiresOrganizationSignIn = await RequiresOrganizationSignInAsync(orgName, cancellationToken);
+                organizationEntries.Add(new ConsoleOwnerOption(
+                    orgName,
+                    orgName,
+                    false,
+                    signedInOwners.Contains(orgName),
+                    requiresOrganizationSignIn));
             }
         }
 
@@ -95,7 +107,7 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
 
         var entries = new List<ConsoleOwnerOption>(organizationEntries.Count + 1);
         entries.AddRange(organizationEntries);
-        entries.Add(new ConsoleOwnerOption(personalOwner, personalOwner, true));
+        entries.Add(new ConsoleOwnerOption(personalOwner, personalOwner, true, true, false));
 
         return [.. entries];
     }
@@ -143,5 +155,34 @@ public sealed class ConsoleContextService(PulumiApiClient apiClient)
         }
 
         return ownerOptions.FirstOrDefault()?.Value ?? personalOwner;
+    }
+
+    private static async Task<IReadOnlySet<string>> GetSignedInOwnersAsync(HttpContext httpContext)
+    {
+        var requestServices = httpContext.RequestServices;
+        if (requestServices is null)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var authService = requestServices.GetService<IAuthenticationService>();
+        if (authService is null)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var authResult = await httpContext.AuthenticateAsync();
+        return WebConsoleAuthenticationState.GetSignedInOwners(authResult.Properties);
+    }
+
+    private async Task<bool> RequiresOrganizationSignInAsync(string organization, CancellationToken cancellationToken)
+    {
+        var organizationLogin = await apiClient.GetOrganizationLoginAsync(organization, cancellationToken);
+        if (organizationLogin is null)
+        {
+            return false;
+        }
+
+        return organizationLogin is not null;
     }
 }

@@ -34,6 +34,7 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
         services.AddMemoryCache();
         services.AddTransient<PulumiApiAuthHeaderHandler>();
         services.AddScoped<WebConsoleApiTokenAccessor>();
+        services.AddScoped<IWebConsoleApiTokenAccessor>(static services => services.GetRequiredService<WebConsoleApiTokenAccessor>());
         services.AddScoped<ConsoleContextService>();
         services.AddScoped<OrganizationSsoReauthenticationService>();
         services.AddSingleton<UserAvatarService>();
@@ -151,7 +152,7 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                 };
                 options.Events = new OpenIdConnectEvents
                 {
-                    OnRedirectToIdentityProvider = context =>
+                    OnRedirectToIdentityProvider = async context =>
                     {
                         var loginProviders = context.HttpContext.RequestServices.GetRequiredService<WebConsoleLoginProviderCatalog>();
                         var challengeValue = context.Properties?.Items.TryGetValue(WebConsoleLoginProviderCatalog.AuthenticationChallengeValueItemKey, out var challengeItem) == true
@@ -169,8 +170,15 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                         context.ProtocolMessage.SetParameter(
                             loginProviders.ChallengeParameterName,
                             challengeValue ?? selectedProvider!.ChallengeValue);
+                        var currentAuthResult = await context.HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                        if (currentAuthResult is { Succeeded: true })
+                        {
+                            WebConsoleAuthenticationState.CarryForwardCurrentSession(
+                                context.Properties!,
+                                currentAuthResult.Properties);
+                        }
 
-                        return Task.CompletedTask;
+                        return;
                     },
                     OnTicketReceived = context =>
                     {
@@ -191,6 +199,47 @@ internal static class MakanaWebConsoleServiceCollectionExtensions
                         if (!string.IsNullOrWhiteSpace(expiresAt))
                         {
                             storedTokens.Add(new AuthenticationToken { Name = "expires_at", Value = expiresAt });
+                        }
+
+                        AuthenticateResult? currentAuthResult = null;
+                        if (WebConsoleAuthenticationState.HasCarriedSession(context.Properties))
+                        {
+                            currentAuthResult = context.HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme)
+                                .GetAwaiter()
+                                .GetResult();
+                        }
+
+                        if (context.Properties is not null)
+                        {
+                            WebConsoleAuthenticationState.RestoreCarriedSession(context.Properties);
+                        }
+
+                        if (currentAuthResult is { Succeeded: true, Principal: not null })
+                        {
+                            context.Principal = currentAuthResult.Principal;
+
+                            if (WebConsoleAuthenticationState.TryGetCurrentApiTokenInfo(
+                                    currentAuthResult.Properties,
+                                    out var currentApiToken,
+                                    out var currentApiTokenExpiresAt))
+                            {
+                                storedTokens.Add(new AuthenticationToken
+                                {
+                                    Name = WebConsoleApiTokenAccessor.ApiTokenName,
+                                    Value = currentApiToken
+                                });
+                                storedTokens.Add(new AuthenticationToken
+                                {
+                                    Name = WebConsoleApiTokenAccessor.ApiTokenExpiresAtName,
+                                    Value = currentApiTokenExpiresAt
+                                });
+                            }
+                        }
+
+                        if (context.Properties is not null &&
+                            context.Properties.Items.TryGetValue(WebConsoleLoginProviderCatalog.AuthenticationOwnerItemKey, out var owner))
+                        {
+                            WebConsoleAuthenticationState.MarkOwnerSignedIn(context.Properties, owner);
                         }
 
                         // Keep the Web Console cookie lean: Dex still receives and persists the

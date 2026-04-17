@@ -22,7 +22,8 @@ internal static class CliLoginEndpoints
     private static async Task<Results<BadRequest, ChallengeHttpResult, RedirectHttpResult>> HandleCliLoginAsync(
         HttpContext context,
         [AsParameters] CliLoginQuery query,
-        PulumiCliLoginService cliLoginService)
+        PulumiCliLoginService cliLoginService,
+        IWebConsoleApiTokenAccessor apiTokenAccessor)
     {
         if (query is not { CliSessionPort: > 0, CliSessionNonce: { Length: > 0 } })
         {
@@ -40,7 +41,8 @@ internal static class CliLoginEndpoints
             return BuildCliLoginChallenge(context);
         }
 
-        var accessToken = await cliLoginService.ExchangeIdTokenAsync(idToken, context.RequestAborted);
+        var currentApiToken = await apiTokenAccessor.GetApiTokenAsync(context.RequestAborted);
+        var accessToken = await cliLoginService.ExchangeIdTokenAsync(idToken, currentApiToken, context.RequestAborted);
         if (string.IsNullOrWhiteSpace(accessToken))
         {
             return BuildCliLoginChallenge(context);

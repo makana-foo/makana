@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Makana.Api.Contracts;
 using Makana.Api.Endpoints;
 using Makana.Api.Storage;
@@ -477,150 +476,6 @@ internal sealed class UpdateViewMaterializer(
                 entry.Value.Object))];
     }
 
-    private static bool TryReadPreludeConfig(EngineEvent envelope, out List<UpdateViewConfigEntry> entries)
-    {
-        entries = [];
-        if (envelope.PreludeEvent?.Config is not { Count: > 0 } config)
-        {
-            return false;
-        }
-
-        foreach (var property in config)
-        {
-            entries.Add(new UpdateViewConfigEntry(property.Key, property.Value, false, false));
-        }
-
-        return entries.Count > 0;
-    }
-
-    private static bool TryApplyResourcePre(
-        EngineEvent envelope,
-        List<MutableResource> resources,
-        Dictionary<string, int> resourcesByIdentity)
-    {
-        if (envelope.ResourcePreEvent?.Metadata is not { } metadata)
-        {
-            return false;
-        }
-
-        var operation = metadata.Op ?? "update";
-        var urn = metadata.Urn;
-        var identity = ResourceIdentity(urn);
-        var parentUrn = metadata.New?.Parent ?? metadata.Old?.Parent;
-        var resource = new MutableResource(
-            urn,
-            parentUrn,
-            null,
-            metadata.Type ?? TryExtractResourceType(urn),
-            TryExtractResourceName(urn),
-            operation,
-            PresentTenseForOperation(operation),
-            null,
-            IsFailureOperation(operation));
-
-        resourcesByIdentity[identity] = resources.Count;
-        resources.Add(resource);
-        return true;
-    }
-
-    private static bool TryApplyResourceOutputs(
-        EngineEvent envelope,
-        List<MutableResource> resources,
-        Dictionary<string, int> resourcesByIdentity,
-        ref Dictionary<string, string?>? oldOutputs,
-        ref Dictionary<string, string?>? newOutputs)
-    {
-        if (envelope.ResOutputsEvent?.Metadata is not { } metadata)
-        {
-            return false;
-        }
-
-        var operation = metadata.Op ?? "same";
-        var urn = metadata.Urn;
-        var identity = ResourceIdentity(urn);
-        var resource = new MutableResource(
-            urn,
-            metadata.New?.Parent ?? metadata.Old?.Parent,
-            null,
-            metadata.Type ?? TryExtractResourceType(urn),
-            TryExtractResourceName(urn),
-            operation,
-            PastTenseForOperation(operation),
-            FormatResourceInfo(metadata),
-            IsFailureOperation(operation));
-
-        if (resourcesByIdentity.TryGetValue(identity, out var existingIndex))
-        {
-            resources[existingIndex] = resource;
-        }
-        else
-        {
-            resources.Add(resource);
-        }
-
-        if (string.Equals(resource.Type, "pulumi:pulumi:Stack", StringComparison.Ordinal))
-        {
-            oldOutputs = ReadOutputs(metadata, "old");
-            newOutputs = ReadOutputs(metadata, "new");
-        }
-
-        return true;
-    }
-
-    private static bool TryApplyResourceFailure(
-        EngineEvent envelope,
-        List<MutableResource> resources,
-        Dictionary<string, int> resourcesByIdentity)
-    {
-        if (envelope.ResOpFailedEvent?.Metadata is not { } metadata)
-        {
-            return false;
-        }
-
-        var operation = metadata.Op ?? "update";
-        var urn = metadata.Urn;
-        var identity = ResourceIdentity(urn);
-        var resource = new MutableResource(
-            urn,
-            metadata.New?.Parent ?? metadata.Old?.Parent,
-            null,
-            metadata.Type ?? TryExtractResourceType(urn),
-            TryExtractResourceName(urn),
-            operation,
-            $"{PresentTenseForOperation(operation)} failed",
-            FormatResourceInfo(metadata),
-            true);
-
-        if (resourcesByIdentity.TryGetValue(identity, out var existingIndex))
-        {
-            resources[existingIndex] = resource;
-        }
-        else
-        {
-            resources.Add(resource);
-        }
-
-        return true;
-    }
-
-    private static bool TryReadSummary(EngineEvent envelope, out UpdateViewSummary summary)
-    {
-        summary = default!;
-        if (envelope.SummaryEvent is not { } summaryEvent)
-        {
-            return false;
-        }
-
-        summary = new UpdateViewSummary(
-            IsPreview: summaryEvent.IsPreview,
-            MaybeCorrupt: summaryEvent.MaybeCorrupt,
-            DurationSeconds: summaryEvent.DurationSeconds,
-            ResourceChanges: summaryEvent.ResourceChanges.Count == 0
-                ? null
-                : new Dictionary<string, int>(summaryEvent.ResourceChanges, StringComparer.Ordinal));
-        return true;
-    }
-
     private static UpdateViewOutputEntry[] BuildOutputs(
         Dictionary<string, string?>? oldOutputs,
         Dictionary<string, string?>? newOutputs)
@@ -658,39 +513,6 @@ internal sealed class UpdateViewMaterializer(
             })];
     }
 
-    private static Dictionary<string, string?>? ReadOutputs(StepEventMetadata metadata, string stateName)
-    {
-        var outputs = string.Equals(stateName, "old", StringComparison.Ordinal)
-            ? metadata.Old?.Outputs
-            : metadata.New?.Outputs;
-        if (outputs is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var property in outputs)
-        {
-            values[property.Key] = JsonValueToInlineString(property.Value);
-        }
-
-        return values;
-    }
-
-    private static string ResourceIdentity(string? urn)
-        => urn ?? string.Empty;
-
-    private static string? FormatResourceInfo(StepEventMetadata metadata)
-    {
-        var fragments = new List<string>();
-        if (metadata.DetailedDiff is { Count: > 0 } detailedDiff)
-        {
-            fragments.Add($"diff {detailedDiff.Count}");
-        }
-
-        return fragments.Count == 0 ? null : string.Join(" · ", fragments);
-    }
-
     private static string? TryExtractResourceType(string? urn)
     {
         if (string.IsNullOrWhiteSpace(urn))
@@ -719,41 +541,6 @@ internal sealed class UpdateViewMaterializer(
         var index = urn.LastIndexOf("::", StringComparison.Ordinal);
         return index < 0 ? urn : urn[(index + 2)..];
     }
-
-    private static string PresentTenseForOperation(string operation)
-        => operation.ToLowerInvariant() switch
-        {
-            "create" => "creating",
-            "create-replacement" => "creating replacement",
-            "delete" => "deleting",
-            "delete-replaced" => "deleting replaced",
-            "replace" => "replacing",
-            "read" => "reading",
-            "read-replacement" => "reading replacement",
-            "same" => "same",
-            "update" => "updating",
-            "import" => "importing",
-            _ => operation.ToLowerInvariant()
-        };
-
-    private static string PastTenseForOperation(string operation)
-        => operation.ToLowerInvariant() switch
-        {
-            "create" => "created",
-            "create-replacement" => "created replacement",
-            "delete" => "deleted",
-            "delete-replaced" => "deleted replaced",
-            "replace" => "replaced",
-            "read" => "read",
-            "read-replacement" => "read replacement",
-            "same" => "same",
-            "update" => "updated",
-            "import" => "imported",
-            _ => operation.ToLowerInvariant()
-        };
-
-    private static bool IsFailureOperation(string operation)
-        => operation.Contains("fail", StringComparison.OrdinalIgnoreCase);
 
     private static string JsonValueToInlineString(JsonElement value)
         => PulumiDisplayValueFormatter.NormalizeUnknownDisplayValue(value.ValueKind switch
@@ -1152,18 +939,3 @@ internal sealed class UpdateViewMaterializer(
         return dictionary;
     }
 }
-
-internal sealed record RecoveredUpdateState(
-    UpdateViewInfo Info,
-    bool IsInProgress,
-    string? ContinuationToken,
-    long? LatestSequence,
-    UpdateViewConfigEntry[] Configuration,
-    UpdateViewOutputEntry[] Outputs,
-    UpdateViewResourceEntry[] Resources,
-    UpdateViewSummary? Summary,
-    StackTranscriptRow[] TranscriptRows);
-
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
-[JsonSerializable(typeof(string))]
-internal partial class UpdateViewMaterializerJsonContext : JsonSerializerContext;

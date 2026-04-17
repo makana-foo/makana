@@ -8,7 +8,7 @@ public sealed class PulumiCliLoginService(HttpClient httpClient, ILogger<PulumiC
     private const string SubjectTokenTypeIdToken = "urn:ietf:params:oauth:token-type:id_token";
     private const string RequestedTokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token";
 
-    public async Task<string?> ExchangeIdTokenAsync(string idToken, CancellationToken cancellationToken)
+    public async Task<string?> ExchangeIdTokenAsync(string idToken, string? currentApiToken, CancellationToken cancellationToken)
     {
         var form = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -20,10 +20,16 @@ public sealed class PulumiCliLoginService(HttpClient httpClient, ILogger<PulumiC
             ["expiration"] = "86400"
         };
 
-        using var response = await httpClient.PostAsync(
-            "/api/oauth/token",
-            new FormUrlEncodedContent(form),
-            cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/oauth/token")
+        {
+            Content = new FormUrlEncodedContent(form)
+        };
+        if (!string.IsNullOrWhiteSpace(currentApiToken))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", $"token {currentApiToken}");
+        }
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {

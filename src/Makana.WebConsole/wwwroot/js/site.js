@@ -185,6 +185,22 @@
         initializeThemeControls(document);
     });
 
+    document.addEventListener("toggle", (event) => {
+        const menu = event.target;
+        if (!(menu instanceof HTMLElement) ||
+            !menu.matches("[data-owner-menu][popover]") ||
+            event.newState !== "open") {
+            return;
+        }
+
+        queueMicrotask(() => {
+            const selectedItem = menu.querySelector('[role="menuitem"][aria-current="page"]');
+            if (selectedItem instanceof HTMLElement) {
+                selectedItem.focus();
+            }
+        });
+    });
+
     darkQuery.addEventListener("change", () => {
         if (getStoredThemeMode() === null) {
             applyTheme(getEffectiveThemeFamily(), resolveDefaultThemeMode());

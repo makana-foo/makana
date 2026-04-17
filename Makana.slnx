@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/sln/">
+    <File Path=".editorconfig" />
+    <File Path="global.json" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/CommunityToolkit.Aspire.Hosting.Litestream/CommunityToolkit.Aspire.Hosting.Litestream.csproj" />
+    <Project Path="src/CommunityToolkit.Aspire.Litestream/CommunityToolkit.Aspire.Litestream.csproj" />
+    <Project Path="src/Makana.Api.Data/Makana.Api.Data.csproj" />
+    <Project Path="src/Makana.Api/Makana.Api.csproj" />
+    <Project Path="src/Makana.AppHost/Makana.AppHost.csproj" />
+    <Project Path="src/Makana.Authentication/Makana.Authentication.csproj" />
+    <Project Path="src/Makana.Compatibility/Makana.Compatibility.csproj" />
+    <Project Path="src/Makana.Journaling/Makana.Journaling.csproj" />
+    <Project Path="src/Makana.ServiceDefaults/Makana.ServiceDefaults.csproj" />
+    <Project Path="src/Makana.StackUpdates/Makana.StackUpdates.csproj" />
+    <Project Path="src/Makana.WebConsole/Makana.WebConsole.csproj" />
+  </Folder>
+</Solution>

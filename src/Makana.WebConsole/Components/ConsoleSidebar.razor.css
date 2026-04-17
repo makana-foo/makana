@@ -10,3 +10,13 @@ aside {
     z-index: 6;
     margin: 0;
 }
+
+.owner-menu-item.selected {
+    background-color: var(--accent);
+    font-weight: var(--font-medium);
+}
+
+.owner-menu-lock-icon {
+    flex: 0 0 auto;
+    color: var(--muted-foreground);
+}

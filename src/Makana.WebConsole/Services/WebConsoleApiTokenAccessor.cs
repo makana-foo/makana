@@ -6,11 +6,17 @@ using Microsoft.Extensions.Options;
 
 namespace Makana.WebConsole.Services;
 
+public interface IWebConsoleApiTokenAccessor
+{
+    Task<string?> GetApiTokenAsync(CancellationToken cancellationToken);
+    Task<WebConsoleApiTokenInfo?> GetApiTokenInfoAsync(CancellationToken cancellationToken);
+}
+
 internal sealed class WebConsoleApiTokenAccessor(
     IHttpContextAccessor httpContextAccessor,
     IHostEnvironment environment,
     IOptions<WebConsoleApiOptions> apiOptions,
-    IWebConsoleApiTokenExchangeService tokenExchangeService)
+    IWebConsoleApiTokenExchangeService tokenExchangeService) : IWebConsoleApiTokenAccessor
 {
     internal const string ApiTokenName = "makana_api_token";
     internal const string ApiTokenExpiresAtName = "makana_api_token_expires_at";
@@ -41,7 +47,27 @@ internal sealed class WebConsoleApiTokenAccessor(
         var authResult = await httpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         if (authResult is { Succeeded: true, Principal.Identity.IsAuthenticated: true })
         {
-            if (TryGetStoredApiToken(authResult.Properties) is { } storedToken)
+            var carriedApiToken = WebConsoleAuthenticationState.GetCarriedApiToken(authResult.Properties);
+            if (authResult.Properties?.GetTokenValue("id_token") is string currentIdToken &&
+                !string.IsNullOrWhiteSpace(carriedApiToken))
+            {
+                var linkedToken = await tokenExchangeService.ExchangeAsync(currentIdToken, carriedApiToken, cancellationToken);
+                if (linkedToken is not null)
+                {
+                    StoreApiToken(authResult.Properties, linkedToken);
+                    WebConsoleAuthenticationState.ClearCarriedApiToken(authResult.Properties);
+                    await httpContext.SignInAsync(
+                        CookieAuthenticationDefaults.AuthenticationScheme,
+                        authResult.Principal,
+                        authResult.Properties);
+                    var tokenInfo = new WebConsoleApiTokenInfo(linkedToken.AccessToken, linkedToken.ExpiresAt);
+                    httpContext.Items[CachedItemKey] = tokenInfo;
+                    return tokenInfo;
+                }
+            }
+
+            if (authResult.Properties is { } authProperties &&
+                TryGetStoredApiToken(authProperties) is { } storedToken)
             {
                 httpContext.Items[CachedItemKey] = storedToken;
                 return storedToken;
@@ -49,7 +75,7 @@ internal sealed class WebConsoleApiTokenAccessor(
 
             if (authResult.Properties?.GetTokenValue("id_token") is string idToken)
             {
-                var exchangedToken = await tokenExchangeService.ExchangeAsync(idToken, cancellationToken);
+                var exchangedToken = await tokenExchangeService.ExchangeAsync(idToken, currentApiToken: null, cancellationToken);
                 if (exchangedToken is not null)
                 {
                     StoreApiToken(authResult.Properties, exchangedToken);
@@ -112,4 +138,4 @@ internal sealed class WebConsoleApiTokenAccessor(
     }
 }
 
-internal sealed record WebConsoleApiTokenInfo(string AccessToken, DateTimeOffset? ExpiresAt);
+public sealed record WebConsoleApiTokenInfo(string AccessToken, DateTimeOffset? ExpiresAt);

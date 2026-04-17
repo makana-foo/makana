@@ -2,7 +2,12 @@ using System.Collections.Frozen;
 
 namespace Makana.WebConsole.Models;
 
-public sealed record ConsoleOwnerOption(string Value, string Label, bool IsPersonal);
+public sealed record ConsoleOwnerOption(
+    string Value,
+    string Label,
+    bool IsPersonal,
+    bool IsSignedIn,
+    bool RequiresOrganizationSignIn);
 
 public sealed record ConsoleOwnerGroup(string Heading, IReadOnlyList<ConsoleOwnerOption> Options);
 

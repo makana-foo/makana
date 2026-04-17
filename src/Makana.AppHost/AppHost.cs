@@ -12,6 +12,11 @@ using Microsoft.Extensions.Configuration;
 var builder = DistributedApplication.CreateBuilder(args);
 var applicationEnvironment = builder.Environment.EnvironmentName;
 var testingWebConsoleApiToken = builder.Configuration["Testing:WebConsoleApiToken"];
+builder.AddKubernetesEnvironment("k8s")
+    .WithProperties(k8s =>
+    {
+        k8s.HelmChartName = "makana";
+    });
 var apiContainerOptions = builder.Configuration
     .GetRequiredSection(ApiContainerOptions.SectionName)
     .Get<ApiContainerOptions>() ?? new ApiContainerOptions();
@@ -45,7 +50,7 @@ var api = builder.AddProject<Projects.Makana_Api>("api", options =>
     {
         options.ExcludeLaunchProfile = true;
     })
-    .WithHttpEndpoint()
+    .WithHttpEndpoint(targetPort: 8080)
     .PublishAsDockerFile(resource =>
     {
         var apiDataVolume = apiStorage.VolumeName
@@ -53,8 +58,7 @@ var api = builder.AddProject<Projects.Makana_Api>("api", options =>
 
         resource.WithDockerfile("api", "../", "Makana.Api/Dockerfile")
             .WithBuildArg("PUBLISH_AOT", apiContainerOptions.PublishAot.ToString().ToLowerInvariant())
-            .WithBuildArg("FINAL_BASE_IMAGE", apiContainerOptions.ResolveFinalBaseImage())
-            .WithHttpEndpoint(targetPort: 8080);
+            .WithBuildArg("FINAL_BASE_IMAGE", apiContainerOptions.ResolveFinalBaseImage());
 
         resource.WithVolume(apiDataVolume, apiStorage.DataPath)
             .WithContainerFiles(

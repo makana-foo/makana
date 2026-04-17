@@ -33,7 +33,7 @@ public sealed class IndexModel(
     public string SsoProtocol { get; set; } = "oidc";
 
     [BindProperty]
-    public string SsoMode { get; set; } = "optional";
+    public string SsoMode { get; set; } = "required";
 
     [BindProperty]
     public string? SsoDisplayName { get; set; }
@@ -397,9 +397,8 @@ public sealed class IndexModel(
     private static string NormalizeSsoMode(string mode)
         => mode.ToLowerInvariant() switch
         {
-            "required" => "required",
             "exclusive" => "exclusive",
-            _ => "optional"
+            _ => "required"
         };
 
     private static string NormalizeSsoProtocol(string protocol)

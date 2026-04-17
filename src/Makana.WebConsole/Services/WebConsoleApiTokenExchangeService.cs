@@ -5,7 +5,7 @@ namespace Makana.WebConsole.Services;
 
 internal interface IWebConsoleApiTokenExchangeService
 {
-    Task<WebConsoleSessionAccessToken?> ExchangeAsync(string idToken, CancellationToken cancellationToken);
+    Task<WebConsoleSessionAccessToken?> ExchangeAsync(string idToken, string? currentApiToken, CancellationToken cancellationToken);
 }
 
 internal sealed record WebConsoleSessionAccessToken(string AccessToken, DateTimeOffset ExpiresAt);
@@ -14,12 +14,18 @@ internal sealed class WebConsoleApiTokenExchangeService(
     HttpClient httpClient,
     ILogger<WebConsoleApiTokenExchangeService> logger) : IWebConsoleApiTokenExchangeService
 {
-    public async Task<WebConsoleSessionAccessToken?> ExchangeAsync(string idToken, CancellationToken cancellationToken)
+    public async Task<WebConsoleSessionAccessToken?> ExchangeAsync(string idToken, string? currentApiToken, CancellationToken cancellationToken)
     {
-        using var response = await httpClient.PostAsJsonAsync(
-            "/api/auth/web-console/token",
-            new WebConsoleApiTokenExchangeRequest(idToken),
-            cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/web-console/token")
+        {
+            Content = JsonContent.Create(new WebConsoleApiTokenExchangeRequest(idToken))
+        };
+        if (!string.IsNullOrWhiteSpace(currentApiToken))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", $"token {currentApiToken}");
+        }
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
