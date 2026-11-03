@@ -117,16 +117,16 @@ public sealed class MakanaApiStorageRuntime
             return Path.GetFullPath(litestreamGroup.ResolveDatabasePath("makana.db"));
         }
 
-        var directPath = configuration["DOTNET_API_DB"];
+        var directPath = configuration["Makana:DbRoot"];
         if (string.IsNullOrWhiteSpace(directPath))
         {
             throw new InvalidOperationException(
-                "Missing Makana API database configuration. Configure Aspire Litestream client metadata or DOTNET_API_DB in Development/Testing.");
+                "Missing Makana API database configuration. Configure Aspire Litestream client metadata or Makana__DbRoot in Development/Testing.");
         }
 
         if (!environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
         {
-            throw new InvalidOperationException("DOTNET_API_DB is only supported in Development and Testing.");
+            throw new InvalidOperationException("Makana__DbRoot is only supported in Development and Testing.");
         }
 
         return Path.GetFullPath(directPath);
